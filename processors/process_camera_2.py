@@ -140,7 +140,6 @@ def process_video(video_path):
                             fps=fps,
                             time_format_display=time_format_display,
                             time_format_filename=time_format_filename,
-                            frame_w=frame_w,
                             frame_h=frame_h,
                             event_frames_dir=event_frames_dir,
                             event_id=event_id,
