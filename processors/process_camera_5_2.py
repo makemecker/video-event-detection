@@ -60,11 +60,22 @@ def process_video(video_path):
         person_present = ctx["person_present"]
 
         roi = {
-            "x1": 2,
-            "y1": 506,
-            "x2": 1871,
-            "y2": 1071
+            "x1": 52,
+            "y1": 541,
+            "x2": 303,
+            "y2": 1037
         }
+
+        expanded_roi = {
+            "x1": 50,
+            "y1": 539,
+            "x2": 805,
+            "y2": 1063
+        }
+
+        if expanded_roi["x2"] <= expanded_roi["x1"] or \
+                expanded_roi["y2"] <= expanded_roi["y1"]:
+            raise ValueError("Expanded ROI invalid")
 
         with tqdm(total=total_frames, desc="Detecting events") as pbar:
             while True:
@@ -75,8 +86,8 @@ def process_video(video_path):
                 if frame_idx % process_every_n_frame == 0:
 
                     roi_frame = frame[
-                                roi["y1"]:roi["y2"],
-                                roi["x1"]:roi["x2"]
+                                expanded_roi["y1"]:expanded_roi["y2"],
+                                expanded_roi["x1"]:expanded_roi["x2"]
                                 ]
 
                     results = model(roi_frame, verbose=False)[0]
@@ -88,8 +99,21 @@ def process_video(video_path):
                         conf = float(box.conf[0])
 
                         if cls_id == 0 and conf >= conf_threshold:
-                            person_detected = True
-                            break
+
+                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+
+                            x1 += expanded_roi["x1"]
+                            x2 += expanded_roi["x1"]
+                            y1 += expanded_roi["y1"]
+                            y2 += expanded_roi["y1"]
+
+                            cx = (x1 + x2) / 2
+                            cy = y1 + 0.35 * (y2 - y1)
+
+                            if (roi["x1"] <= cx <= roi["x2"] and
+                                    roi["y1"] <= cy <= roi["y2"]):
+                                person_detected = True
+                                break
 
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
