@@ -8,7 +8,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30):
+def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=False):
     now = datetime.now(timezone.utc)
 
     yesterday_date = (now - timedelta(days=1)).date()
@@ -22,14 +22,17 @@ def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_m
         tzinfo=timezone.utc
     )
 
-    end_dt = datetime(
-        yesterday_date.year,
-        yesterday_date.month,
-        yesterday_date.day,
-        end_hour,
-        end_minute,
-        tzinfo=timezone.utc
-    )
+    if cross_day:
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        end_dt = datetime(
+            yesterday_date.year,
+            yesterday_date.month,
+            yesterday_date.day,
+            end_hour,
+            end_minute,
+            tzinfo=timezone.utc
+        )
 
     fmt = "%Y%m%dT%H%M%S.%f"
     return start_dt.strftime(fmt)[:-3], end_dt.strftime(fmt)[:-3]
