@@ -5,6 +5,14 @@ import requests
 import logging
 import os
 import time
+from credentials import (
+    EMAIL,
+    PASSWORD,
+    CLIENT_ID,
+    BASE_API,
+    PROXY_KEY,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +47,6 @@ def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_m
 
 
 def download_fragment(
-        email,
-        password,
-        client_id,
-        proxy_key,
         camera_id,
         archive,
         start,
@@ -54,8 +58,11 @@ def download_fragment(
         delete_after_download=True,
         verify_ssl=False
 ):
-    if not proxy_key:
-        raise ValueError("proxy_key is required")
+    email = EMAIL
+    password = PASSWORD
+    client_id = CLIENT_ID
+    proxy_key = PROXY_KEY
+    base_api = BASE_API
 
     session = requests.Session()
 
@@ -70,7 +77,7 @@ def download_fragment(
 
     logger.info("=== EXPORT STEP STARTED ===")
 
-    base_api = "https://video-cloud.wb.ru"
+    base_api = base_api
     login_url = f"{base_api}/api/v3/ac-backend/users/login"
 
     auth = session.post(

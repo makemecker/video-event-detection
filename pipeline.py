@@ -7,13 +7,6 @@ from downloader import (
     download_fragment
 )
 
-from credentials import (
-    EMAIL,
-    PASSWORD,
-    CLIENT_ID
-)
-
-
 def pipeline(
     camera_config,
     process_video
@@ -26,13 +19,6 @@ def pipeline(
         )
 
         video_path = download_fragment(
-            email=EMAIL,
-            password=PASSWORD,
-            client_id=CLIENT_ID,
-
-            proxy_key=
-                camera_config["proxy_key"],
-
             camera_id=
                 camera_config["camera_id"],
 
