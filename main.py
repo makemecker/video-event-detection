@@ -10,7 +10,8 @@ MAPPING = {
         "4": ("configs.camera_4", "processors.process_camera_4"),
         "5_1": ("configs.camera_5_1", "processors.process_camera_5_1"),
         "5_2": ("configs.camera_5_2", "processors.process_camera_5_2"),
-        "7": ("configs.camera_7", "processors.process_camera_7")
+        "7": ("configs.camera_7", "processors.process_camera_7"),
+        "dv": ("configs.camera_dv", "processors.process_camera_dv"),
     }
 
 def setup_logging():
