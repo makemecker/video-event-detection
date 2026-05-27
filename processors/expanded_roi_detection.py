@@ -85,24 +85,29 @@ def process_video(video_path, roi, expanded_roi):
                         conf = float(box.conf[0])
 
                         if cls_id == 0 and conf >= conf_threshold:
-
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
 
+                            # возвращаем координаты в систему всего кадра
                             x1 += expanded_roi["x1"]
                             x2 += expanded_roi["x1"]
                             y1 += expanded_roi["y1"]
                             y2 += expanded_roi["y1"]
 
+                            # контрольная точка
                             cx = (x1 + x2) / 2
                             cy = y1 + 0.35 * (y2 - y1)
 
-                            if (roi["x1"] <= cx <= roi["x2"] and
-                                    roi["y1"] <= cy <= roi["y2"]):
+                            # проверка попадания точки в roi
+                            if (
+                                    roi["x1"] <= cx <= roi["x2"] and
+                                    roi["y1"] <= cy <= roi["y2"]
+                            ):
                                 person_detected = True
                                 break
 
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
+
                         last_event_frame = frame_idx
                         person_present = True
 

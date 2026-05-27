@@ -11,7 +11,7 @@ MAPPING = {
         "5_1": ("configs.camera_5_1", "processors.only_roi_detection"),
         "5_2": ("configs.camera_5_2", "processors.only_roi_detection"),
         "5_3": ("configs.camera_5_3", "processors.expanded_roi_detection"),
-        "7": ("configs.camera_7", "processors.process_camera_7"),
+        "7": ("configs.camera_7", "processors.expanded_roi_detection"),
         "dv": ("configs.camera_dv", "processors.only_roi_detection"),
     }
 
