@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 MAPPING = {
         "2": ("configs.camera_2", "processors.expanded_roi_detection"),
-        "4": ("configs.camera_4", "processors.process_camera_4"),
+        "4": ("configs.camera_4", "processors.expanded_roi_detection"),
         "5_1": ("configs.camera_5_1", "processors.only_roi_detection"),
         "5_2": ("configs.camera_5_2", "processors.only_roi_detection"),
         "5_3": ("configs.camera_5_3", "processors.expanded_roi_detection"),
