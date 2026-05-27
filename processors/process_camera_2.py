@@ -35,12 +35,12 @@ def process_video(video_path, roi):
         cooldown_seconds = settings["cooldown_seconds"]
 
         ctx = init_video_context(
-                                video_path,
-                                event_frames_dir,
-                                seconds_before,
-                                seconds_after,
-                                cooldown_seconds
-                            )
+            video_path,
+            event_frames_dir,
+            seconds_before,
+            seconds_after,
+            cooldown_seconds
+        )
 
         cap = ctx["cap"]
         fps = ctx["FPS"]
@@ -59,17 +59,11 @@ def process_video(video_path, roi):
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
 
-        roi_width = roi["x2"] - roi["x1"]
-        roi_height = roi["y2"] - roi["y1"]
-
-        margin_factor = 2.5
-        margin = int(max(roi_width, roi_height) * margin_factor)
-
         expanded_roi = {
-            "x1": max(0, roi["x1"] - margin),
-            "y1": max(0, roi["y1"] - margin),
-            "x2": min(frame_w, roi["x2"] + margin),
-            "y2": min(frame_h, roi["y2"] + margin),
+            "x1": 0,
+            "y1": 14,
+            "x2": 136,
+            "y2": 254,
         }
 
         if expanded_roi["x2"] <= expanded_roi["x1"] or \
@@ -91,7 +85,7 @@ def process_video(video_path, roi):
 
                     results = model(roi_frame, verbose=False)[0]
 
-                    person_detected_this_frame = False
+                    person_detected = False
 
                     for box in results.boxes:
                         cls_id = int(box.cls[0])
@@ -111,10 +105,10 @@ def process_video(video_path, roi):
 
                             if (roi["x1"] <= cx <= roi["x2"] and
                                     roi["y1"] <= cy <= roi["y2"]):
-                                person_detected_this_frame = True
+                                person_detected = True
                                 break
 
-                    if person_detected_this_frame and not person_present and \
+                    if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
                         last_event_frame = frame_idx
                         person_present = True
@@ -136,7 +130,7 @@ def process_video(video_path, roi):
                             inner_logger=logger
                         )
 
-                    if not person_detected_this_frame:
+                    if not person_detected:
                         person_present = False
 
                 frame_idx += 1

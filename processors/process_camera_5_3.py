@@ -70,7 +70,7 @@ def process_video(video_path, roi):
                 expanded_roi["y2"] <= expanded_roi["y1"]:
             raise ValueError("Expanded ROI invalid")
 
-        with tqdm(total=total_frames, desc="Detecting events") as pbar:
+        with tqdm(total=total_frames, desc="Detecting events", mininterval=0.5) as pbar:
             while True:
                 ret, frame = cap.read()
                 if not ret:
