@@ -6,7 +6,7 @@ from downloader import (
     get_yesterday_interval_utc,
     download_fragment
 )
-from processors.expanded_roi_detection import process_video
+from engine import process_video
 
 def pipeline(camera_config):
     logger.info(f"Running pipeline for camera: {camera_config['camera_id']}")
