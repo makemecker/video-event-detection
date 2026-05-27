@@ -59,11 +59,11 @@ def process_video(video_path, roi):
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
 
-        event_roi = {
-            "x1": 1408,
-            "y1": 456,
-            "x2": 1599,
-            "y2": 800
+        expanded_roi = {
+            "x1": 1044,
+            "y1": 120,
+            "x2": 1756,
+            "y2": 986
         }
 
         with tqdm(total=total_frames, desc="Detecting events") as pbar:
@@ -75,8 +75,8 @@ def process_video(video_path, roi):
                 if frame_idx % process_every_n_frame == 0:
 
                     roi_frame = frame[
-                                roi["y1"]:roi["y2"],
-                                roi["x1"]:roi["x2"]
+                                expanded_roi["y1"]:expanded_roi["y2"],
+                                expanded_roi["x1"]:expanded_roi["x2"]
                                 ]
 
                     results = model(roi_frame, verbose=False)[0]
@@ -91,19 +91,19 @@ def process_video(video_path, roi):
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
 
                             # возвращаем координаты в систему всего кадра
-                            x1 += roi["x1"]
-                            x2 += roi["x1"]
-                            y1 += roi["y1"]
-                            y2 += roi["y1"]
+                            x1 += expanded_roi["x1"]
+                            x2 += expanded_roi["x1"]
+                            y1 += expanded_roi["y1"]
+                            y2 += expanded_roi["y1"]
 
                             # контрольная точка
                             cx = (x1 + x2) / 2
                             cy = y1 + 0.35 * (y2 - y1)
 
-                            # проверка попадания точки в event_roi
+                            # проверка попадания точки в roi
                             if (
-                                    event_roi["x1"] <= cx <= event_roi["x2"] and
-                                    event_roi["y1"] <= cy <= event_roi["y2"]
+                                    roi["x1"] <= cx <= roi["x2"] and
+                                    roi["y1"] <= cy <= roi["y2"]
                             ):
                                 person_detected = True
                                 break
