@@ -31,7 +31,8 @@ def pipeline(
 
         process_video(
             video_path,
-            camera_config["roi"]
+            camera_config["roi"],
+            camera_config.get("expanded_roi")
         )
 
     except Exception:

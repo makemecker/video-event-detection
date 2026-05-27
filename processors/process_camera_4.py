@@ -32,7 +32,7 @@ def box_inside_with_margin(a, b, margin=15):
     )
 
 
-def process_video(video_path, roi):
+def process_video(video_path, roi, expanded_roi):
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -78,12 +78,6 @@ def process_video(video_path, roi):
         person_present = ctx["person_present"]
 
         limit_roi = {"x1": 430, "y1": 19, "x2": 713, "y2": 433}
-        expanded_roi = {
-            "x1": 428,
-            "y1": 107,
-            "x2": 586,
-            "y2": 392,
-        }
 
         expanded_roi["x1"] = max(0, expanded_roi["x1"])
         expanded_roi["y1"] = max(0, expanded_roi["y1"])

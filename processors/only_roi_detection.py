@@ -14,7 +14,7 @@ from video_utils import (
 
 logger = logging.getLogger(__name__)
 
-def process_video(video_path, roi):
+def process_video(video_path, roi, expanded_roi):
     try:
         logger.info(f"Видео: {video_path}")
 

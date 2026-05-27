@@ -14,7 +14,7 @@ from video_utils import (
 
 logger = logging.getLogger(__name__)
 
-def process_video(video_path, roi):
+def process_video(video_path, roi, expanded_roi):
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -58,13 +58,6 @@ def process_video(video_path, roi):
         event_intervals = ctx["event_intervals"]
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
-
-        expanded_roi = {
-            "x1": 50,
-            "y1": 539,
-            "x2": 805,
-            "y2": 1063
-        }
 
         if expanded_roi["x2"] <= expanded_roi["x1"] or \
                 expanded_roi["y2"] <= expanded_roi["y1"]:
