@@ -14,7 +14,28 @@ from video_utils import (
 
 logger = logging.getLogger(__name__)
 
-def process_video(video_path, roi, expanded_roi):
+
+def boxes_intersect(a, b):
+    return not (
+            a["x2"] < b["x1"] or
+            a["x1"] > b["x2"] or
+            a["y2"] < b["y1"] or
+            a["y1"] > b["y2"]
+    )
+
+
+def box_inside_with_margin(a, b, margin=15):
+    return (
+            a["x1"] >= b["x1"] - margin and
+            a["y1"] >= b["y1"] - margin and
+            a["x2"] <= b["x2"] + margin and
+            a["y2"] <= b["y2"] + margin
+    )
+
+
+def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="center_point"):
+    if mode not in ("center_point", "crossing"):
+        raise ValueError(f"Unknown detection_mode: {mode}")
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -93,21 +114,39 @@ def process_video(video_path, roi, expanded_roi):
                             y1 += expanded_roi["y1"]
                             y2 += expanded_roi["y1"]
 
-                            # контрольная точка
-                            cx = (x1 + x2) / 2
-                            cy = y1 + 0.35 * (y2 - y1)
+                            if mode == "center_point":
+                                # контрольная точка
+                                cx = (x1 + x2) / 2
+                                cy = y1 + 0.35 * (y2 - y1)
 
-                            # проверка попадания точки в roi
-                            if (
-                                    roi["x1"] <= cx <= roi["x2"] and
-                                    roi["y1"] <= cy <= roi["y2"]
-                            ):
-                                person_detected = True
-                                break
+                                # проверка попадания точки в roi
+                                if roi["x1"] <= cx <= roi["x2"] and roi["y1"] <= cy <= roi["y2"]:
+                                    person_detected = True
+                                    break
+
+                            elif mode == "crossing":
+                                if limit_roi is None:
+                                    raise ValueError("limit_roi is required for crossing mode")
+
+                                person_box = {
+                                    "x1": x1,
+                                    "y1": y1,
+                                    "x2": x2,
+                                    "y2": y2
+                                }
+
+                                cy = (y1 + y2) / 2
+
+                                if (
+                                        boxes_intersect(person_box, roi) and
+                                        y1 < roi["y1"] <= cy <= roi["y2"] and
+                                        box_inside_with_margin(person_box, limit_roi, margin=0)
+                                ):
+                                    person_detected = True
+                                    break
 
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
-
                         last_event_frame = frame_idx
                         person_present = True
 

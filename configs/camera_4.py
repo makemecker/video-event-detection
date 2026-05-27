@@ -19,5 +19,15 @@ CAMERA_CONFIG = {
             "y1": 107,
             "x2": 586,
             "y2": 392,
-        }
+        },
+
+    "limit_roi":
+        {
+            "x1": 430,
+            "y1": 19,
+            "x2": 713,
+            "y2": 433
+        },
+
+    "detection_mode": "crossing"
 }
