@@ -1,19 +1,9 @@
 import argparse
 import logging
-from pipeline import pipeline
 import importlib
+from pipeline import pipeline
 
 logger = logging.getLogger(__name__)
-
-MAPPING = {
-        "2": ("configs.camera_2", "processors.expanded_roi_detection"),
-        "4": ("configs.camera_4", "processors.expanded_roi_detection"),
-        "5_1": ("configs.camera_5_1", "processors.only_roi_detection"),
-        "5_2": ("configs.camera_5_2", "processors.only_roi_detection"),
-        "5_3": ("configs.camera_5_3", "processors.expanded_roi_detection"),
-        "7": ("configs.camera_7", "processors.expanded_roi_detection"),
-        "dv": ("configs.camera_dv", "processors.only_roi_detection"),
-    }
 
 def setup_logging():
     logging.basicConfig(
@@ -22,28 +12,22 @@ def setup_logging():
     )
 
 def get_camera(camera_id):
+    import_path = f"configs.camera_{camera_id}"
 
-    if camera_id not in MAPPING:
+    try:
+        module = importlib.import_module(import_path)
+    except ModuleNotFoundError:
         raise ValueError(f"Unknown camera: {camera_id}")
 
-    config_module, processor_module = MAPPING[camera_id]
+    return module.CAMERA_CONFIG
 
-    logger.info(f"Loading camera {camera_id}")
-
-    config = importlib.import_module(config_module).CAMERA_CONFIG
-    processor = importlib.import_module(processor_module).process_video
-
-    return config, processor
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Vision Event Detector"
-    )
+    parser = argparse.ArgumentParser(description="Vision Event Detector")
 
     parser.add_argument(
         "camera",
-        choices=MAPPING.keys(),
-        help="Camera floor"
+        help="Camera ID"
     )
 
     return parser.parse_args()
@@ -53,13 +37,9 @@ def main():
     setup_logging()
 
     args = parse_args()
+    config = get_camera(args.camera)
 
-    config, processor = get_camera(args.camera)
-
-    pipeline(
-        camera_config=config,
-        process_video=processor
-    )
+    pipeline(camera_config=config)
 
 
 if __name__ == "__main__":

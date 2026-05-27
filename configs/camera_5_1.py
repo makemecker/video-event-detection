@@ -11,5 +11,7 @@ CAMERA_CONFIG = {
             "y1": 506,
             "x2": 1871,
             "y2": 1071
-        }
+        },
+
+    "detection_mode": "simple"
 }

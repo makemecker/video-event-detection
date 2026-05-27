@@ -24,5 +24,7 @@ CAMERA_CONFIG = {
             "y1": 14,
             "x2": 136,
             "y2": 254,
-        }
+        },
+
+    "detection_mode": "center_point"
 }

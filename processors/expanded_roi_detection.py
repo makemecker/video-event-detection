@@ -32,10 +32,48 @@ def box_inside_with_margin(a, b, margin=15):
             a["y2"] <= b["y2"] + margin
     )
 
+def detect_center_point(x1, y1, x2, y2, roi):
+    cx = (x1 + x2) / 2
+    cy = y1 + 0.35 * (y2 - y1)
 
-def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="center_point"):
-    if mode not in ("center_point", "crossing"):
+    return (
+        roi["x1"] <= cx <= roi["x2"] and
+        roi["y1"] <= cy <= roi["y2"]
+    )
+
+
+def detect_crossing(x1, y1, x2, y2, roi, limit_roi):
+    if limit_roi is None:
+        raise ValueError("limit_roi is required for crossing mode")
+
+    person_box = {
+        "x1": x1,
+        "y1": y1,
+        "x2": x2,
+        "y2": y2
+    }
+
+    cy = (y1 + y2) / 2
+
+    return (
+        boxes_intersect(person_box, roi) and
+        y1 < roi["y1"] <= cy <= roi["y2"] and
+        box_inside_with_margin(person_box, limit_roi, margin=0)
+    )
+
+def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
+    """
+        mode:
+            - center_point  → simple ROI detection
+            - crossing      → boundary crossing detection (requires limit_roi)
+    """
+
+    if mode not in ("simple", "center_point", "crossing"):
         raise ValueError(f"Unknown detection_mode: {mode}")
+
+    if mode != "simple" and expanded_roi is None:
+        raise ValueError("expanded_roi required for geometry modes")
+
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -80,9 +118,11 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="center_po
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
 
-        if expanded_roi["x2"] <= expanded_roi["x1"] or \
-                expanded_roi["y2"] <= expanded_roi["y1"]:
-            raise ValueError("Expanded ROI invalid")
+        # choose active ROI
+        active_roi = expanded_roi if mode != "simple" else roi
+
+        if active_roi["x2"] <= active_roi["x1"] or active_roi["y2"] <= active_roi["y1"]:
+            raise ValueError("ROI invalid")
 
         with tqdm(total=total_frames, desc="Detecting events", mininterval=0.5) as pbar:
             while True:
@@ -93,57 +133,45 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="center_po
                 if frame_idx % process_every_n_frame == 0:
 
                     roi_frame = frame[
-                                expanded_roi["y1"]:expanded_roi["y2"],
-                                expanded_roi["x1"]:expanded_roi["x2"]
+                                active_roi["y1"]:active_roi["y2"],
+                                active_roi["x1"]:active_roi["x2"]
                                 ]
 
                     results = model(roi_frame, verbose=False)[0]
 
                     person_detected = False
 
+                    offset_x = active_roi["x1"]
+                    offset_y = active_roi["y1"]
+
                     for box in results.boxes:
                         cls_id = int(box.cls[0])
                         conf = float(box.conf[0])
 
-                        if cls_id == 0 and conf >= conf_threshold:
-                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        if cls_id != 0 or conf < conf_threshold:
+                            continue
 
-                            # возвращаем координаты в систему всего кадра
-                            x1 += expanded_roi["x1"]
-                            x2 += expanded_roi["x1"]
-                            y1 += expanded_roi["y1"]
-                            y2 += expanded_roi["y1"]
+                        if mode == "simple":
+                            person_detected = True
+                            break
 
-                            if mode == "center_point":
-                                # контрольная точка
-                                cx = (x1 + x2) / 2
-                                cy = y1 + 0.35 * (y2 - y1)
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
 
-                                # проверка попадания точки в roi
-                                if roi["x1"] <= cx <= roi["x2"] and roi["y1"] <= cy <= roi["y2"]:
-                                    person_detected = True
-                                    break
+                        x1 += offset_x
+                        x2 += offset_x
+                        y1 += offset_y
+                        y2 += offset_y
 
-                            elif mode == "crossing":
-                                if limit_roi is None:
-                                    raise ValueError("limit_roi is required for crossing mode")
+                        if mode == "center_point":
+                            detected = detect_center_point(x1, y1, x2, y2, roi)
+                        elif mode == "crossing":
+                            detected = detect_crossing(x1, y1, x2, y2, roi, limit_roi)
+                        else:
+                            raise ValueError("Invalid mode")
 
-                                person_box = {
-                                    "x1": x1,
-                                    "y1": y1,
-                                    "x2": x2,
-                                    "y2": y2
-                                }
-
-                                cy = (y1 + y2) / 2
-
-                                if (
-                                        boxes_intersect(person_box, roi) and
-                                        y1 < roi["y1"] <= cy <= roi["y2"] and
-                                        box_inside_with_margin(person_box, limit_roi, margin=0)
-                                ):
-                                    person_detected = True
-                                    break
+                        if detected:
+                            person_detected = True
+                            break
 
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
