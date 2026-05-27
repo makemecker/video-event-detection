@@ -30,7 +30,8 @@ def pipeline(
         )
 
         process_video(
-            video_path
+            video_path,
+            camera_config["roi"]
         )
 
     except Exception:

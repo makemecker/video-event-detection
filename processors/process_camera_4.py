@@ -32,7 +32,7 @@ def box_inside_with_margin(a, b, margin=15):
     )
 
 
-def process_video(video_path):
+def process_video(video_path, roi):
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -77,12 +77,6 @@ def process_video(video_path):
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
 
-        door_roi = {
-            "x1": 440,
-            "y1": 125,
-            "x2": 468,
-            "y2": 250
-        }
         limit_roi = {"x1": 430, "y1": 19, "x2": 713, "y2": 433}
         expanded_roi = {
             "x1": 428,
@@ -140,9 +134,9 @@ def process_video(video_path):
                             cy = (y1 + y2) / 2
 
                             if (
-                                    boxes_intersect(person_box, door_roi) and
-                                    y1 < door_roi["y1"] and
-                                    door_roi["y1"] <= cy <= door_roi["y2"] and
+                                    boxes_intersect(person_box, roi) and
+                                    y1 < roi["y1"] and
+                                    roi["y1"] <= cy <= roi["y2"] and
                                     box_inside_with_margin(person_box, limit_roi, margin=0)
                             ):
                                 person_detected_this_frame = True

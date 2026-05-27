@@ -14,7 +14,7 @@ from video_utils import (
 
 logger = logging.getLogger(__name__)
 
-def process_video(video_path):
+def process_video(video_path, roi):
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -58,20 +58,6 @@ def process_video(video_path):
         event_intervals = ctx["event_intervals"]
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
-
-        # roi = {
-        #     "x1": 2,
-        #     "y1": 341,
-        #     "x2": 102,
-        #     "y2": 462
-        # }
-
-        roi = {
-            "x1": 0,
-            "y1": 114,
-            "x2": 36,
-            "y2": 154
-        }
 
         roi_width = roi["x2"] - roi["x1"]
         roi_height = roi["y2"] - roi["y1"]

@@ -14,7 +14,7 @@ from video_utils import (
 
 logger = logging.getLogger(__name__)
 
-def process_video(video_path):
+def process_video(video_path, roi):
     try:
         logger.info(f"Видео: {video_path}")
 
@@ -58,13 +58,6 @@ def process_video(video_path):
         event_intervals = ctx["event_intervals"]
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
-
-        roi = {
-            "x1": 1074,
-            "y1": 596,
-            "x2": 1648,
-            "y2": 1079
-        }
 
         with tqdm(total=total_frames, desc="Detecting events") as pbar:
             while True:

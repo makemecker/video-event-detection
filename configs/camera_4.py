@@ -3,5 +3,13 @@ CAMERA_CONFIG = {
         "ordynka-intellect-4205/DeviceIpint.18/SourceEndpoint.video:0:0",
 
     "archive":
-        "hosts/ordynka-intellect-4205/MultimediaStorage.AliceBlue/MultimediaStorage"
+        "hosts/ordynka-intellect-4205/MultimediaStorage.AliceBlue/MultimediaStorage",
+
+    "roi":
+        {
+            "x1": 440,
+            "y1": 125,
+            "x2": 468,
+            "y2": 250
+        }
 }
