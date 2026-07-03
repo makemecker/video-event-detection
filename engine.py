@@ -81,8 +81,6 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
         paths = build_output_paths(meta["cam_date_part"], meta["date_str"])
         settings = DEFAULT_SETTINGS
 
-        video_start_datetime = meta["video_start_datetime"]
-
         output_path = paths["output_path"]
         event_frames_dir = paths["event_frames_dir"]
         archive_name = paths["archive_name"]
@@ -117,6 +115,7 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
         event_intervals = ctx["event_intervals"]
         event_id = ctx["event_id"]
         person_present = ctx["person_present"]
+        subtitle_provider = ctx["subtitle_provider"]
 
         # choose active ROI
         active_roi = expanded_roi if mode != "simple" else roi
@@ -181,10 +180,6 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                         event_id = handle_event(
                             frame=frame,
                             frame_idx=frame_idx,
-                            video_start_datetime=video_start_datetime,
-                            fps=fps,
-                            time_format_display=time_format_display,
-                            time_format_filename=time_format_filename,
                             frame_h=frame_h,
                             event_frames_dir=event_frames_dir,
                             event_id=event_id,
@@ -192,7 +187,8 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                             frames_after=frames_after,
                             total_frames=total_frames,
                             event_intervals=event_intervals,
-                            inner_logger=logger
+                            inner_logger=logger,
+                            subtitle_provider=subtitle_provider,
                         )
 
                     if not person_detected:
@@ -220,8 +216,8 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
             frame_w=frame_w,
             frame_h=frame_h,
             total_frames=total_frames,
-            video_start_datetime=video_start_datetime,
             time_format_display=time_format_display,
+            subtitle_provider=subtitle_provider
         )
 
         logger.info(f"Видео сохранено: {output_path}")

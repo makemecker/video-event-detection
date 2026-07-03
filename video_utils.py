@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from ultralytics import YOLO
 import zipfile
 import shutil
+from subtitle_provider import SubtitleProvider
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ def init_video_context(video_path, event_frames_dir,
         raise Exception("Видео не открылось")
 
     fps = cap.get(cv2.CAP_PROP_FPS)
+    subtitle_provider = SubtitleProvider(video_path, fps)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -89,15 +92,12 @@ def init_video_context(video_path, event_frames_dir,
         "event_intervals": [],
         "event_id": 0,
         "person_present": False,
+        "subtitle_provider": subtitle_provider,
     }
 
 def handle_event(
     frame,
     frame_idx,
-    video_start_datetime,
-    fps,
-    time_format_display,
-    time_format_filename,
     frame_h,
     event_frames_dir,
     event_id,
@@ -106,10 +106,11 @@ def handle_event(
     total_frames,
     event_intervals,
     inner_logger,
+    subtitle_provider,
 ):
-    event_time = video_start_datetime + timedelta(seconds=frame_idx / fps)
-    display_time = event_time.strftime(time_format_display)
-    filename_time = event_time.strftime(time_format_filename)
+    raw_time = subtitle_provider.get(frame_idx)
+    display_time = raw_time or ""
+    filename_time = re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time) if raw_time else f"frame_{frame_idx}"
 
     frame_save = frame.copy()
 
@@ -165,8 +166,8 @@ def write_output_video(
     frame_w,
     frame_h,
     total_frames,
-    video_start_datetime,
     time_format_display,
+    subtitle_provider
 ):
     from tqdm import tqdm
 
@@ -189,8 +190,7 @@ def write_output_video(
                 interval_idx += 1
 
             elif start <= frame_idx <= end:
-                current_time = video_start_datetime + timedelta(seconds=frame_idx / fps)
-                display_time = current_time.strftime(time_format_display)
+                display_time = subtitle_provider.get(frame_idx) or ""
 
                 cv2.putText(
                     frame,
