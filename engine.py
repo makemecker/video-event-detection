@@ -11,6 +11,8 @@ from video_utils import (
     create_archive,
     cleanup
 )
+import cv2
+from bisect import bisect_right
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,17 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                 ret, frame = cap.read()
                 if not ret:
                     break
+
+                video_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
+                calc_time = frame_idx / fps
+                sub_time = subtitle_provider.frames[bisect_right(subtitle_provider.frames, calc_time) - 1]
+
+                print(
+                    f"frame={frame_idx}",
+                    f"calc={calc_time:.3f}",
+                    f"video={video_time:.3f}",
+                    f"sub={sub_time}"
+                )
 
                 if frame_idx % process_every_n_frame == 0:
 

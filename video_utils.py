@@ -221,7 +221,7 @@ def write_output_video(
                 interval_idx += 1
 
             elif start <= frame_idx <= end:
-                display_time = subtitle_provider.get(frame_idx) or ""
+                display_time = normalize_datetime(subtitle_provider.get(frame_idx) or "")
 
                 cv2.putText(
                     frame,
