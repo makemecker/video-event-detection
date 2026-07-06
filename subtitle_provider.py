@@ -19,24 +19,23 @@ class SubtitleProvider:
         self.texts = [x[1] for x in self.index]
 
     def _load_from_ffmpeg(self, video_path):
-        cmd = [
+        tmp = tempfile.NamedTemporaryFile(suffix=".srt", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        subprocess.run([
             "ffmpeg",
+            "-y",
             "-i", video_path,
-            "-map", "0:s?",
-            "-f", "srt",
-            "pipe:1"
-        ]
+            "-map", "0:s:0",
+            "-c", "copy",
+            tmp_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subs = pysubs2.load(tmp_path, encoding="utf-8")
 
-        srt_text = result.stdout.decode("utf-8", errors="ignore")
+        os.remove(tmp_path)
 
-        f = tempfile.NamedTemporaryFile(mode="w+", suffix=".srt", delete=False)
-        f.write(srt_text)
-        f.close()
-
-        subs = pysubs2.load(f.name, format="srt")
-        os.unlink(f.name)
         return subs
 
     def _build_index(self):
