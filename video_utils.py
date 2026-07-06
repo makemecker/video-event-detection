@@ -71,6 +71,11 @@ def init_video_context(video_path, event_frames_dir,
     fps = cap.get(cv2.CAP_PROP_FPS)
     subtitle_provider = SubtitleProvider(video_path, fps)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    print("Video FPS:", fps)
+    print("Total frames:", total_frames)
+    print("Duration:", total_frames / fps)
+
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -128,6 +133,12 @@ def handle_event(
     inner_logger,
     subtitle_provider,
 ):
+    print(
+        f"EVENT frame={frame_idx}, "
+        f"video_sec={frame_idx / subtitle_provider.fps:.3f}, "
+        f"subtitle='{subtitle_provider.get(frame_idx)}'"
+    )
+
     raw_time = subtitle_provider.get(frame_idx)
     display_time = normalize_datetime(raw_time or "")
     filename_time = re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time) if raw_time else f"frame_{frame_idx}"

@@ -18,6 +18,21 @@ class SubtitleProvider:
         self.frames = [x[0] for x in self.index]# seconds
         self.texts = [x[1] for x in self.index]
 
+        # ==== Диагностика ====
+        print(f"FPS = {self.fps}")
+
+        if self.subs:
+            print("First subtitle:")
+            print("  start =", self.subs[0].start)
+            print("  text  =", repr(self.subs[0].text))
+
+            print("Last subtitle:")
+            print("  start =", self.subs[-1].start)
+            print("  text  =", repr(self.subs[-1].text))
+
+        print("First index:", self.index[:5])
+        print("Last index:", self.index[-5:])
+
     def _load_from_ffmpeg(self, video_path):
         tmp = tempfile.NamedTemporaryFile(suffix=".srt", delete=False)
         tmp_path = tmp.name
@@ -54,6 +69,15 @@ class SubtitleProvider:
         t = frame_idx / self.fps  # секунды
 
         pos = bisect_right(self.frames, t) - 1
+
+        if frame_idx % 1000 == 0:  # чтобы не засорять лог
+            print(
+                f"frame={frame_idx}, "
+                f"time={t:.3f}, "
+                f"pos={pos}, "
+                f"text={self.texts[pos] if pos >= 0 else ''}"
+            )
+
         if pos < 0:
             return ""
 
