@@ -18,6 +18,21 @@ DEFAULT_SETTINGS = {
     "cooldown_seconds": 1,
 }
 
+MONTHS = {
+    "янв": "01",
+    "фев": "02",
+    "мар": "03",
+    "апр": "04",
+    "май": "05",
+    "июн": "06",
+    "июл": "07",
+    "авг": "08",
+    "сен": "09",
+    "окт": "10",
+    "ноя": "11",
+    "дек": "12",
+}
+
 def parse_video_metadata(video_path):
     filename = os.path.basename(video_path)
 
@@ -95,6 +110,11 @@ def init_video_context(video_path, event_frames_dir,
         "subtitle_provider": subtitle_provider,
     }
 
+def normalize_datetime(text):
+    for ru, num in MONTHS.items():
+        text = text.replace(f"-{ru}-", f"-{num}-")
+    return text
+
 def handle_event(
     frame,
     frame_idx,
@@ -109,7 +129,7 @@ def handle_event(
     subtitle_provider,
 ):
     raw_time = subtitle_provider.get(frame_idx)
-    display_time = raw_time or ""
+    display_time = normalize_datetime(raw_time or "")
     filename_time = re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time) if raw_time else f"frame_{frame_idx}"
 
     frame_save = frame.copy()
