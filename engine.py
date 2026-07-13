@@ -220,7 +220,6 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
             frame_w=frame_w,
             frame_h=frame_h,
             total_frames=total_frames,
-            time_format_display=time_format_display,
             subtitle_provider=subtitle_provider
         )
 
