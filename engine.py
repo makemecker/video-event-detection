@@ -9,7 +9,8 @@ from video_utils import (
     merge_intervals,
     write_output_video,
     create_archive,
-    cleanup
+    cleanup,
+    get_video_duration
 )
 import cv2
 
@@ -62,82 +63,169 @@ def detect_crossing(x1, y1, x2, y2, roi, limit_roi):
         box_inside_with_margin(person_box, limit_roi, margin=0)
     )
 
-def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
+def process_video(
+    video_path,
+    roi,
+    expanded_roi,
+    limit_roi=None,
+    mode="simple",
+):
     """
-        mode:
-            - center_point  → simple ROI detection
-            - crossing      → boundary crossing detection (requires limit_roi)
+    mode:
+        - simple
+        - center_point
+        - crossing
     """
 
-    if mode not in ("simple", "center_point", "crossing"):
-        raise ValueError(f"Unknown detection_mode: {mode}")
+    if mode not in (
+        "simple",
+        "center_point",
+        "crossing",
+    ):
+        raise ValueError(
+            f"Unknown detection_mode: {mode}"
+        )
 
-    if mode != "simple" and expanded_roi is None:
-        raise ValueError("expanded_roi required for geometry modes")
+    if (
+        mode != "simple"
+        and expanded_roi is None
+    ):
+        raise ValueError(
+            "expanded_roi required "
+            "for geometry modes"
+        )
+
+    if (
+        mode == "crossing"
+        and limit_roi is None
+    ):
+        raise ValueError(
+            "limit_roi required "
+            "for crossing mode"
+        )
+
+    cap = None
 
     try:
-        logger.info(f"Видео: {video_path}")
+        logger.info(
+            "Видео: %s",
+            video_path,
+        )
 
-        meta = parse_video_metadata(video_path)
-        paths = build_output_paths(meta["cam_date_part"], meta["date_str"])
+        meta = parse_video_metadata(
+            video_path
+        )
+
+        paths = build_output_paths(
+            meta["cam_date_part"],
+            meta["date_str"],
+        )
+
         settings = DEFAULT_SETTINGS
 
         output_path = paths["output_path"]
-        event_frames_dir = paths["event_frames_dir"]
+        event_frames_dir = paths[
+            "event_frames_dir"
+        ]
         archive_name = paths["archive_name"]
 
-        seconds_before = settings["seconds_before"]
-        seconds_after = settings["seconds_after"]
-        conf_threshold = settings["conf_threshold"]
-        process_every_n_frame = settings["process_every_n_frame"]
-        cooldown_seconds = settings["cooldown_seconds"]
+        seconds_before = settings[
+            "seconds_before"
+        ]
+        seconds_after = settings[
+            "seconds_after"
+        ]
+        conf_threshold = settings[
+            "conf_threshold"
+        ]
+        process_every_n_frame = settings[
+            "process_every_n_frame"
+        ]
+        cooldown_seconds = settings[
+            "cooldown_seconds"
+        ]
 
         ctx = init_video_context(
             video_path,
             event_frames_dir,
             seconds_before,
             seconds_after,
-            cooldown_seconds
+            cooldown_seconds,
         )
 
         cap = ctx["cap"]
-        fps = ctx["FPS"]
         total_frames = ctx["TOTAL_FRAMES"]
-        frame_w = ctx["frame_w"]
         frame_h = ctx["frame_h"]
-        frames_before = ctx["frames_before"]
-        frames_after = ctx["frames_after"]
-        cooldown_frames = ctx["cooldown_frames"]
         model = ctx["model"]
-        time_format_display = ctx["time_format_display"]
-        time_format_filename = ctx["time_format_filename"]
-        frame_idx = ctx["frame_idx"]
-        last_event_frame = ctx["last_event_frame"]
-        event_intervals = ctx["event_intervals"]
-        event_id = ctx["event_id"]
-        person_present = ctx["person_present"]
-        subtitle_provider = ctx["subtitle_provider"]
+        subtitle_provider = ctx[
+            "subtitle_provider"
+        ]
 
-        # choose active ROI
-        active_roi = expanded_roi if mode != "simple" else roi
+        event_intervals = []
+        event_id = 0
+        frame_idx = 0
+        person_present = False
 
-        if active_roi["x2"] <= active_roi["x1"] or active_roi["y2"] <= active_roi["y1"]:
+        # Cooldown теперь измеряется по медиатаймлайну.
+        last_event_time_sec = (
+            -cooldown_seconds
+        )
+
+        video_duration_sec = (
+            get_video_duration(video_path)
+        )
+
+        active_roi = (
+            expanded_roi
+            if mode != "simple"
+            else roi
+        )
+
+        if (
+            active_roi["x2"]
+            <= active_roi["x1"]
+            or active_roi["y2"]
+            <= active_roi["y1"]
+        ):
             raise ValueError("ROI invalid")
 
-        with tqdm(total=total_frames, desc="Detecting events", mininterval=0.5) as pbar:
+        # FRAME_COUNT в этом файле некорректен:
+        # OpenCV сообщил 61300, но декодировал 49057.
+        # Поэтому progress bar может не достигать 100%.
+        with tqdm(
+            total=total_frames,
+            desc="Detecting events",
+            mininterval=0.5,
+        ) as pbar:
             while True:
                 ret, frame = cap.read()
+
                 if not ret:
                     break
 
-                if frame_idx % process_every_n_frame == 0:
+                video_time_sec = (
+                    cap.get(
+                        cv2.CAP_PROP_POS_MSEC
+                    )
+                    / 1000.0
+                )
 
+                if (
+                    frame_idx
+                    % process_every_n_frame
+                    == 0
+                ):
                     roi_frame = frame[
-                                active_roi["y1"]:active_roi["y2"],
-                                active_roi["x1"]:active_roi["x2"]
-                                ]
+                        active_roi["y1"]:
+                        active_roi["y2"],
+                        active_roi["x1"]:
+                        active_roi["x2"],
+                    ]
 
-                    results = model(roi_frame, verbose=False)[0]
+                    results = model(
+                        roi_frame,
+                        verbose=False,
+                    )[0]
 
                     person_detected = False
 
@@ -145,17 +233,28 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                     offset_y = active_roi["y1"]
 
                     for box in results.boxes:
-                        cls_id = int(box.cls[0])
-                        conf = float(box.conf[0])
+                        cls_id = int(
+                            box.cls[0]
+                        )
+                        conf = float(
+                            box.conf[0]
+                        )
 
-                        if cls_id != 0 or conf < conf_threshold:
+                        if (
+                            cls_id != 0
+                            or conf < conf_threshold
+                        ):
                             continue
 
                         if mode == "simple":
                             person_detected = True
                             break
 
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        x1, y1, x2, y2 = (
+                            box.xyxy[0]
+                            .cpu()
+                            .numpy()
+                        )
 
                         x1 += offset_x
                         x2 += offset_x
@@ -163,33 +262,81 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                         y2 += offset_y
 
                         if mode == "center_point":
-                            detected = detect_center_point(x1, y1, x2, y2, roi)
+                            detected = (
+                                detect_center_point(
+                                    x1,
+                                    y1,
+                                    x2,
+                                    y2,
+                                    roi,
+                                )
+                            )
+
                         elif mode == "crossing":
-                            detected = detect_crossing(x1, y1, x2, y2, roi, limit_roi)
+                            detected = (
+                                detect_crossing(
+                                    x1,
+                                    y1,
+                                    x2,
+                                    y2,
+                                    roi,
+                                    limit_roi,
+                                )
+                            )
+
                         else:
-                            raise ValueError("Invalid mode")
+                            raise ValueError(
+                                "Invalid mode"
+                            )
 
                         if detected:
                             person_detected = True
                             break
 
-                    if person_detected and not person_present and \
-                            frame_idx - last_event_frame > cooldown_frames:
-                        last_event_frame = frame_idx
+                    cooldown_passed = (
+                        video_time_sec
+                        - last_event_time_sec
+                        > cooldown_seconds
+                    )
+
+                    if (
+                        person_detected
+                        and not person_present
+                        and cooldown_passed
+                    ):
+                        last_event_time_sec = (
+                            video_time_sec
+                        )
+
                         person_present = True
 
                         event_id = handle_event(
                             frame=frame,
                             frame_idx=frame_idx,
+                            video_time_sec=(
+                                video_time_sec
+                            ),
                             frame_h=frame_h,
-                            event_frames_dir=event_frames_dir,
+                            event_frames_dir=(
+                                event_frames_dir
+                            ),
                             event_id=event_id,
-                            frames_before=frames_before,
-                            frames_after=frames_after,
-                            total_frames=total_frames,
-                            event_intervals=event_intervals,
+                            seconds_before=(
+                                seconds_before
+                            ),
+                            seconds_after=(
+                                seconds_after
+                            ),
+                            video_duration_sec=(
+                                video_duration_sec
+                            ),
+                            event_intervals=(
+                                event_intervals
+                            ),
                             inner_logger=logger,
-                            subtitle_provider=subtitle_provider,
+                            subtitle_provider=(
+                                subtitle_provider
+                            ),
                         )
 
                     if not person_detected:
@@ -199,33 +346,60 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                 pbar.update(1)
 
         cap.release()
+        cap = None
 
-        logger.info("Merging intervals...")
+        logger.info(
+            "Decoded frames: %d",
+            frame_idx,
+        )
 
-        merged = merge_intervals(event_intervals)
+        logger.info(
+            "Merging PTS intervals..."
+        )
 
-        logger.info(f"First merged intervals: {merged[:3]}")
-        logger.info(f"Last merged intervals: {merged[-3:]}")
+        merged = merge_intervals(
+            event_intervals
+        )
 
-        logger.info(f"Events: {event_id}")
-        logger.info(f"Merged intervals: {len(merged)}")
+        logger.info(
+            "First merged PTS intervals: %s",
+            merged[:3],
+        )
 
-        logger.info("=== WRITING VIDEO ===")
+        logger.info(
+            "Last merged PTS intervals: %s",
+            merged[-3:],
+        )
+
+        logger.info(
+            "Events: %d",
+            event_id,
+        )
+
+        logger.info(
+            "Merged intervals: %d",
+            len(merged),
+        )
+
+        logger.info(
+            "=== WRITING VIDEO ==="
+        )
 
         write_output_video(
             video_path=video_path,
             output_path=output_path,
             merged_intervals=merged,
-            fps=fps,
-            frame_w=frame_w,
-            frame_h=frame_h,
-            total_frames=total_frames,
-            subtitle_provider=subtitle_provider
+            subtitle_provider=subtitle_provider,
         )
 
-        logger.info(f"Видео сохранено: {output_path}")
+        logger.info(
+            "Видео сохранено: %s",
+            output_path,
+        )
 
-        logger.info("Creating archive...")
+        logger.info(
+            "Creating archive..."
+        )
 
         create_archive(
             archive_name=archive_name,
@@ -240,9 +414,19 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
             archive_name=archive_name,
         )
 
-        logger.info(f"Done: {archive_name}")
-        logger.info("=== FINISHED ===")
+        logger.info(
+            "Done: %s",
+            archive_name,
+        )
+
+        logger.info(
+            "=== FINISHED ==="
+        )
 
     except Exception:
         logger.exception("CRASH")
         raise
+
+    finally:
+        if cap is not None:
+            cap.release()
