@@ -173,14 +173,6 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                             person_detected = True
                             break
 
-                    if frame_idx % 5000 == 0:
-                        print(
-                            "DETECT",
-                            frame_idx,
-                            cap.get(cv2.CAP_PROP_POS_FRAMES),
-                            cap.get(cv2.CAP_PROP_POS_MSEC)
-                        )
-
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
                         last_event_frame = frame_idx
@@ -211,6 +203,9 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
         logger.info("Merging intervals...")
 
         merged = merge_intervals(event_intervals)
+
+        logger.info(f"First merged intervals: {merged[:3]}")
+        logger.info(f"Last merged intervals: {merged[-3:]}")
 
         logger.info(f"Events: {event_id}")
         logger.info(f"Merged intervals: {len(merged)}")

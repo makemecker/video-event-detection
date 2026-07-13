@@ -59,12 +59,6 @@ class SubtitleProvider:
 
         return self.texts[pos]
 
-    def get_by_time(self, sec):
-        pos = bisect_right(self.frames, sec) - 1
-        if pos < 0:
-            return ""
-        return self.texts[pos]
-
     def get_filename_time(self, frame_idx):
         t = self.get(frame_idx)
         return t.replace(":", "-").replace(" ", "_") if t else f"frame_{frame_idx}"

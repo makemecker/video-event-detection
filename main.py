@@ -6,9 +6,18 @@ from pipeline import pipeline
 logger = logging.getLogger(__name__)
 
 def setup_logging():
+    log_format = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(
+                "video_detector.log",
+                encoding="utf-8",
+            ),
+        ],
     )
 
 def get_camera(camera_id):

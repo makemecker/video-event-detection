@@ -7,6 +7,7 @@ import zipfile
 import shutil
 from subtitle_provider import SubtitleProvider
 import re
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -133,67 +134,76 @@ def handle_event(
     inner_logger,
     subtitle_provider,
 ):
+    raw_time = subtitle_provider.get(frame_idx)
+    display_time = normalize_datetime(raw_time or "")
+
+    filename_time = (
+        re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time)
+        if raw_time
+        else f"frame_{frame_idx}"
+    )
+
     print(
         f"EVENT frame={frame_idx}, "
         f"video_sec={frame_idx / subtitle_provider.fps:.3f}, "
-        f"subtitle='{subtitle_provider.get(frame_idx)}'"
+        f"subtitle='{raw_time}'"
     )
-
-    fps = subtitle_provider.fps
-    event_time_sec = frame_idx / fps
-    raw_time = subtitle_provider.get_by_time(event_time_sec)
-
-    display_time = normalize_datetime(raw_time or "")
-    filename_time = re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time) if raw_time else f"frame_{frame_idx}"
 
     frame_save = frame.copy()
 
-    cv2.putText(
-        frame_save,
-        display_time,
-        (30, frame_h - 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0, 255, 255),
-        2
-    )
+    if display_time:
+        cv2.putText(
+            frame_save,
+            display_time,
+            (30, frame_h - 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 255, 255),
+            2,
+        )
 
     frame_filename = os.path.join(
         event_frames_dir,
-        f"event_{event_id}_{filename_time}.jpg"
+        f"event_{event_id}_{filename_time}.jpg",
     )
 
-    cv2.imwrite(frame_filename, frame_save)
-
-    start = max(0, frame_idx - frames_before)
-    end = min(total_frames - 1, frame_idx + frames_after)
-
-    event_intervals.append(
-        (
-            start / fps,
-            end / fps
+    if not cv2.imwrite(frame_filename, frame_save):
+        inner_logger.warning(
+            f"Не удалось сохранить кадр события: {frame_filename}"
         )
-    )
 
-    inner_logger.info(f"Event {event_id} at frame {frame_idx}")
+    start_frame = max(0, frame_idx - frames_before)
+    end_frame = min(total_frames - 1, frame_idx + frames_after)
+
+    # Интервалы хранятся именно в номерах кадров.
+    event_intervals.append((start_frame, end_frame))
+
+    inner_logger.info(
+        f"Event {event_id} at frame {frame_idx}, "
+        f"interval={start_frame}-{end_frame}, "
+        f"time={raw_time!r}"
+    )
 
     return event_id + 1
 
 def merge_intervals(event_intervals):
-    event_intervals.sort()
-    merged = []
+    if not event_intervals:
+        return []
 
-    for interval in event_intervals:
-        if not merged:
-            merged.append(interval)
+    sorted_intervals = sorted(event_intervals)
+    merged = [sorted_intervals[0]]
+
+    for curr_start, curr_end in sorted_intervals[1:]:
+        prev_start, prev_end = merged[-1]
+
+        # +1 объединяет также непосредственно соседние интервалы.
+        if curr_start <= prev_end + 1:
+            merged[-1] = (
+                prev_start,
+                max(prev_end, curr_end),
+            )
         else:
-            prev_start, prev_end = merged[-1]
-            curr_start, curr_end = interval
-
-            if curr_start <= prev_end:
-                merged[-1] = (prev_start, max(prev_end, curr_end))
-            else:
-                merged.append(interval)
+            merged.append((curr_start, curr_end))
 
     return merged
 
@@ -205,59 +215,79 @@ def write_output_video(
     frame_w,
     frame_h,
     total_frames,
-    time_format_display,
-    subtitle_provider
+    subtitle_provider,
 ):
     from tqdm import tqdm
 
+    if not merged_intervals:
+        raise ValueError("Нет интервалов для записи")
+
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Не удалось открыть видео: {video_path}")
+
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (frame_w, frame_h))
+    out = cv2.VideoWriter(
+        output_path,
+        fourcc,
+        fps,
+        (frame_w, frame_h),
+    )
+
+    if not out.isOpened():
+        cap.release()
+        raise RuntimeError(f"Не удалось создать видео: {output_path}")
 
     frame_idx = 0
     interval_idx = 0
 
-    with tqdm(total=total_frames, desc="Writing output") as pbar:
-        while True:
-            ret, frame = cap.read()
-            if not ret or interval_idx >= len(merged_intervals):
-                break
+    try:
+        with tqdm(
+            total=total_frames,
+            desc="Writing output",
+            mininterval=0.5,
+        ) as pbar:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            start_time, end_time = merged_intervals[interval_idx]
+                # Переходим через все уже завершившиеся интервалы.
+                while (
+                    interval_idx < len(merged_intervals)
+                    and frame_idx > merged_intervals[interval_idx][1]
+                ):
+                    interval_idx += 1
 
-            if frame_idx % 5000 == 0:
-                print(
-                    "WRITE",
-                    frame_idx,
-                    cap.get(cv2.CAP_PROP_POS_FRAMES),
-                    cap.get(cv2.CAP_PROP_POS_MSEC)
-                )
+                # Последний нужный интервал уже пройден.
+                if interval_idx >= len(merged_intervals):
+                    break
 
-            current_time = frame_idx / fps
+                start_frame, end_frame = merged_intervals[interval_idx]
 
-            if frame_idx > end_time:
-                interval_idx += 1
+                if start_frame <= frame_idx <= end_frame:
+                    raw_time = subtitle_provider.get(frame_idx)
+                    display_time = normalize_datetime(raw_time or "")
 
-            elif start_time <= current_time <= end_time:
-                display_time = normalize_datetime(subtitle_provider.get(frame_idx) or "")
+                    if display_time:
+                        cv2.putText(
+                            frame,
+                            display_time,
+                            (30, frame_h - 30),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1,
+                            (0, 255, 255),
+                            2,
+                        )
 
-                cv2.putText(
-                    frame,
-                    display_time,
-                    (30, frame_h - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (0, 255, 255),
-                    2
-                )
+                    out.write(frame)
 
-                out.write(frame)
+                frame_idx += 1
+                pbar.update(1)
 
-            frame_idx += 1
-            pbar.update(1)
-
-    cap.release()
-    out.release()
+    finally:
+        cap.release()
+        out.release()
 
 def create_archive(
     archive_name,
