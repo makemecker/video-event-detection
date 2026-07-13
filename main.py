@@ -1,9 +1,11 @@
 import argparse
 import logging
 import importlib
+import time
 from pipeline import pipeline
 
 logger = logging.getLogger(__name__)
+
 
 def setup_logging():
     log_format = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
@@ -19,6 +21,7 @@ def setup_logging():
             ),
         ],
     )
+
 
 def get_camera(camera_id):
     import_path = f"configs.camera_{camera_id}"
@@ -45,10 +48,26 @@ def parse_args():
 def main():
     setup_logging()
 
-    args = parse_args()
-    config = get_camera(args.camera)
+    start_time = time.perf_counter()
 
-    pipeline(camera_config=config)
+    try:
+        args = parse_args()
+        config = get_camera(args.camera)
+
+        pipeline(camera_config=config)
+
+    finally:
+        elapsed = time.perf_counter() - start_time
+
+        minutes = int(elapsed // 60)
+        seconds = elapsed % 60
+
+        logger.info("=" * 60)
+        logger.info(
+            f"Pipeline finished in {minutes} min {seconds:.1f} sec "
+            f"({elapsed/60:.2f} min)"
+        )
+        logger.info("=" * 60)
 
 
 if __name__ == "__main__":
