@@ -139,7 +139,10 @@ def handle_event(
         f"subtitle='{subtitle_provider.get(frame_idx)}'"
     )
 
-    raw_time = subtitle_provider.get(frame_idx)
+    fps = subtitle_provider.fps
+    event_time_sec = frame_idx / fps
+    raw_time = subtitle_provider.get_by_time(event_time_sec)
+
     display_time = normalize_datetime(raw_time or "")
     filename_time = re.sub(r"[^0-9a-zA-Z_-]", "_", raw_time) if raw_time else f"frame_{frame_idx}"
 
@@ -165,7 +168,12 @@ def handle_event(
     start = max(0, frame_idx - frames_before)
     end = min(total_frames - 1, frame_idx + frames_after)
 
-    event_intervals.append((start, end))
+    event_intervals.append(
+        (
+            start / fps,
+            end / fps
+        )
+    )
 
     inner_logger.info(f"Event {event_id} at frame {frame_idx}")
 
@@ -215,12 +223,22 @@ def write_output_video(
             if not ret or interval_idx >= len(merged_intervals):
                 break
 
-            start, end = merged_intervals[interval_idx]
+            start_time, end_time = merged_intervals[interval_idx]
 
-            if frame_idx > end:
+            if frame_idx % 5000 == 0:
+                print(
+                    "WRITE",
+                    frame_idx,
+                    cap.get(cv2.CAP_PROP_POS_FRAMES),
+                    cap.get(cv2.CAP_PROP_POS_MSEC)
+                )
+
+            current_time = frame_idx / fps
+
+            if frame_idx > end_time:
                 interval_idx += 1
 
-            elif start <= frame_idx <= end:
+            elif start_time <= current_time <= end_time:
                 display_time = normalize_datetime(subtitle_provider.get(frame_idx) or "")
 
                 cv2.putText(

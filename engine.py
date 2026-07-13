@@ -12,7 +12,6 @@ from video_utils import (
     cleanup
 )
 import cv2
-from bisect import bisect_right
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +130,6 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                 if not ret:
                     break
 
-                video_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
-                calc_time = frame_idx / fps
-                sub_time = subtitle_provider.frames[bisect_right(subtitle_provider.frames, calc_time) - 1]
-
-                print(
-                    f"frame={frame_idx}",
-                    f"calc={calc_time:.3f}",
-                    f"video={video_time:.3f}",
-                    f"sub={sub_time}"
-                )
-
                 if frame_idx % process_every_n_frame == 0:
 
                     roi_frame = frame[
@@ -184,6 +172,14 @@ def process_video(video_path, roi, expanded_roi, limit_roi=None, mode="simple"):
                         if detected:
                             person_detected = True
                             break
+
+                    if frame_idx % 5000 == 0:
+                        print(
+                            "DETECT",
+                            frame_idx,
+                            cap.get(cv2.CAP_PROP_POS_FRAMES),
+                            cap.get(cv2.CAP_PROP_POS_MSEC)
+                        )
 
                     if person_detected and not person_present and \
                             frame_idx - last_event_frame > cooldown_frames:
