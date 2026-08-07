@@ -2,7 +2,6 @@ import os
 import cv2
 import logging
 from datetime import datetime, timedelta
-from ultralytics import YOLO
 import zipfile
 import shutil
 from subtitle_provider import SubtitleProvider
@@ -12,6 +11,10 @@ import subprocess
 import json
 from pathlib import Path
 import tempfile
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,18 @@ def init_video_context(video_path, event_frames_dir,
     logger.info(f"Resolution: {frame_w}x{frame_h}")
 
     logger.info("Loading YOLO...")
-    model = YOLO("yolov8x.pt")
+    from ultralytics import YOLO
+
+    model_path = Path(
+        os.getenv(
+            "YOLO_MODEL_PATH",
+            str(PROJECT_ROOT / "yolov8x.pt"),
+        )
+    )
+    if not model_path.is_file():
+        raise FileNotFoundError(f"YOLO model not found: {model_path}")
+
+    model = YOLO(str(model_path))
     model.to("cuda")
 
     return {
