@@ -5,16 +5,130 @@ import requests
 import logging
 import os
 import time
+from urllib.parse import urljoin, urlsplit
 from credentials import (
     EMAIL,
     PASSWORD,
     CLIENT_ID,
     BASE_API,
-    PROXY_KEY,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+def _request(session, method, url, **kwargs):
+    try:
+        return getattr(session, method)(url, **kwargs)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as error:
+        host = urlsplit(url).netloc or url
+        raise RuntimeError(
+            f"Cannot connect to {host}. Check that the corporate VPN is "
+            "enabled and BASE_API is reachable."
+        ) from error
+
+
+def _authenticate(session, base_api, email, password, client_id, verify_ssl):
+    login_url = f"{base_api}/api/v3/ac-backend/users/login"
+    auth = _request(
+        session,
+        "post",
+        login_url,
+        json={
+            "email": email,
+            "password": password,
+            "clientId": client_id
+        },
+        verify=verify_ssl,
+        timeout=30
+    )
+
+    logger.info("Authenticating...")
+    auth.raise_for_status()
+
+    access_token = auth.json().get("accessToken")
+    if not access_token:
+        raise RuntimeError("Authentication response does not contain accessToken")
+
+    logger.info("Login OK")
+    return access_token
+
+
+def _get_webclient_base(
+        session,
+        base_api,
+        access_token,
+        camera_id,
+        verify_ssl
+):
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    cameras_response = _request(
+        session,
+        "get",
+        f"{base_api}/api/v1/configsync/cameras",
+        params={"enabledOnly": "true"},
+        headers=headers,
+        verify=verify_ssl,
+        timeout=30
+    )
+    cameras_response.raise_for_status()
+    cameras = cameras_response.json()
+
+    if not isinstance(cameras, list):
+        raise RuntimeError("Unexpected response from configsync/cameras")
+
+    camera = next(
+        (
+            item for item in cameras
+            if isinstance(item, dict) and item.get("accessPoint") == camera_id
+        ),
+        None
+    )
+    if camera is None:
+        raise RuntimeError(
+            f"Camera {camera_id!r} was not found in configsync/cameras"
+        )
+
+    domain_id = camera.get("domainId")
+    if domain_id is None:
+        raise RuntimeError(
+            f"Camera {camera_id!r} does not contain domainId"
+        )
+
+    webclient_response = _request(
+        session,
+        "get",
+        f"{base_api}/api/v3/ac-backend/public/domains/"
+        f"{domain_id}/webclienturl",
+        headers=headers,
+        verify=verify_ssl,
+        timeout=30
+    )
+    webclient_response.raise_for_status()
+    public_url = webclient_response.json().get("publicURL")
+
+    if not isinstance(public_url, str) or not public_url.strip():
+        raise RuntimeError("webclienturl response does not contain publicURL")
+
+    webclient_base = urljoin(f"{base_api}/", public_url.strip())
+    parsed_url = urlsplit(webclient_base)
+    path_parts = [part for part in parsed_url.path.split("/") if part]
+
+    if (
+            parsed_url.scheme not in ("http", "https")
+            or len(path_parts) < 3
+            or path_parts[-3] != "arpserver"
+            or not path_parts[-2]
+            or path_parts[-1] != "webclient"
+            or parsed_url.query
+            or parsed_url.fragment
+    ):
+        raise RuntimeError("AxxonNet returned an invalid web client URL")
+
+    logger.info("AxxonNet web client route resolved")
+    return webclient_base.rstrip("/")
+
 
 def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=False):
     now = datetime.now(timezone.utc)
@@ -61,8 +175,7 @@ def download_fragment(
     email = EMAIL
     password = PASSWORD
     client_id = CLIENT_ID
-    proxy_key = PROXY_KEY
-    base_api = BASE_API
+    base_api = BASE_API.rstrip("/")
 
     session = requests.Session()
 
@@ -77,45 +190,53 @@ def download_fragment(
 
     logger.info("=== EXPORT STEP STARTED ===")
 
-    base_api = base_api
-    login_url = f"{base_api}/api/v3/ac-backend/users/login"
-
-    auth = session.post(
-        login_url,
-        json={
-            "email": email,
-            "password": password,
-            "clientId": client_id
-        },
-        verify=verify_ssl,
-        timeout=30
+    access_token = _authenticate(
+        session,
+        base_api,
+        email,
+        password,
+        client_id,
+        verify_ssl
+    )
+    base = _get_webclient_base(
+        session,
+        base_api,
+        access_token,
+        camera_id,
+        verify_ssl
     )
 
-    logger.info("Authenticating...")
+    def start_export(webclient_base):
+        return _request(
+            session,
+            "post",
+            f"{webclient_base}/export/archive/{camera_id}/{start}/{end}",
+            params={
+                "archive": archive,
+                "waittimeout": waittimeout,
+                "authToken": access_token
+            },
+            json={
+                "format": export_format,
+                "comment": "",
+                "tocloud": False
+            },
+            verify=verify_ssl,
+            timeout=60
+        )
 
-    auth.raise_for_status()
-    access_token = auth.json()["accessToken"]
-
-    logger.info("Login OK")
-
-    base = f"{base_api}/arpserver/{proxy_key}/webclient"
-    export_url = f"{base}/export/archive/{camera_id}/{start}/{end}"
-
-    r = session.post(
-        export_url,
-        params={
-            "archive": archive,
-            "waittimeout": waittimeout,
-            "authToken": access_token
-        },
-        json={
-            "format": export_format,
-            "comment": "",
-            "tocloud": False
-        },
-        verify=verify_ssl,
-        timeout=60
-    )
+    r = start_export(base)
+    if r.status_code in (404, 502):
+        r.close()
+        logger.warning("AxxonNet route changed; resolving it again")
+        base = _get_webclient_base(
+            session,
+            base_api,
+            access_token,
+            camera_id,
+            verify_ssl
+        )
+        r = start_export(base)
 
     if r.status_code != 202:
         logger.error(
@@ -126,17 +247,38 @@ def download_fragment(
     export_id = r.headers["location"].split("/")[-1]
     logger.info(f"Export started id={export_id}")
 
-    status_url = f"{base}/export/{export_id}/status"
-
     logger.info("Starting export job...")
 
+    consecutive_route_failures = 0
     while True:
-        s = session.get(
-            status_url,
+        s = _request(
+            session,
+            "get",
+            f"{base}/export/{export_id}/status",
             params={"authToken": access_token},
             verify=verify_ssl,
             timeout=30
         )
+
+        if s.status_code in (404, 502):
+            s.close()
+            consecutive_route_failures += 1
+            if consecutive_route_failures > 3:
+                raise RuntimeError(
+                    "AxxonNet route remains unavailable after 3 refreshes"
+                )
+            logger.warning("AxxonNet route changed; resolving it again")
+            base = _get_webclient_base(
+                session,
+                base_api,
+                access_token,
+                camera_id,
+                verify_ssl
+            )
+            continue
+
+        consecutive_route_failures = 0
+        s.raise_for_status()
 
         data = s.json()
 
@@ -161,13 +303,36 @@ def download_fragment(
 
     filename = files[0]
 
-    download_url = f"{base}/export/{export_id}/file"
-
     os.makedirs(out_dir, exist_ok=True)
     filepath = os.path.join(out_dir, filename)
 
-    with session.get(
-            download_url,
+    dl = _request(
+        session,
+        "get",
+        f"{base}/export/{export_id}/file",
+        params={
+            "name": filename,
+            "authToken": access_token
+        },
+        stream=True,
+        verify=verify_ssl,
+        timeout=300
+    )
+
+    if dl.status_code in (404, 502):
+        dl.close()
+        logger.warning("AxxonNet route changed; resolving it again")
+        base = _get_webclient_base(
+            session,
+            base_api,
+            access_token,
+            camera_id,
+            verify_ssl
+        )
+        dl = _request(
+            session,
+            "get",
+            f"{base}/export/{export_id}/file",
             params={
                 "name": filename,
                 "authToken": access_token
@@ -175,7 +340,9 @@ def download_fragment(
             stream=True,
             verify=verify_ssl,
             timeout=300
-    ) as dl:
+        )
+
+    with dl:
 
         dl.raise_for_status()
 
@@ -187,7 +354,9 @@ def download_fragment(
     logger.info(f"✓ downloaded:{filepath}")
 
     if delete_after_download:
-        session.delete(
+        _request(
+            session,
+            "delete",
             f"{base}/export/{export_id}",
             params={"authToken": access_token},
             verify=verify_ssl,

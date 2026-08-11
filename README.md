@@ -70,6 +70,13 @@ Includes:
 - frame skipping
 - pre/post event duration
 
+The current AxxonNet web-client route is resolved automatically for each
+camera. `PROXY_KEY` is not required in `.env`.
+
+Access to `BASE_API` may require the corporate VPN. If the VPN is disabled or
+the internal API is unreachable, the downloader stops with an explicit VPN
+connectivity hint.
+
 ---
 
 ## 🧩 Notes
