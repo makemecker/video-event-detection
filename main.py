@@ -1,10 +1,24 @@
 import argparse
-import logging
 import importlib
+import logging
 import time
-from pipeline import pipeline
+
+from pipeline import pipeline, run_cameras
+
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CAMERA_IDS = (
+    "2",
+    "4",
+    "5_1",
+    "5_2",
+    "5_3",
+    "5_dv",
+    "5_k",
+    "7",
+    "7_st",
+)
 
 
 def setup_logging():
@@ -28,10 +42,19 @@ def get_camera(camera_id):
 
     try:
         module = importlib.import_module(import_path)
-    except ModuleNotFoundError:
-        raise ValueError(f"Unknown camera: {camera_id}")
+    except ModuleNotFoundError as error:
+        if error.name != import_path:
+            raise
+        raise ValueError(f"Unknown camera: {camera_id}") from error
 
     return module.CAMERA_CONFIG
+
+
+def positive_integer(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
 
 
 def parse_args():
@@ -39,23 +62,59 @@ def parse_args():
 
     parser.add_argument(
         "camera",
-        help="Camera ID"
+        nargs="+",
+        help="Camera ID(s), or 'all'",
+    )
+    parser.add_argument(
+        "--download-workers",
+        type=positive_integer,
+        default=None,
+        help="Maximum parallel downloads (default: all selected cameras)",
     )
 
     return parser.parse_args()
+
+
+def resolve_camera_ids(values):
+    if "all" in values:
+        if len(values) != 1:
+            raise ValueError("'all' cannot be combined with camera IDs")
+        return list(DEFAULT_CAMERA_IDS)
+
+    return list(dict.fromkeys(values))
+
+
+def all_cameras_succeeded(results):
+    return bool(results) and all(
+        result["status"] == "success"
+        for result in results.values()
+    )
 
 
 def main():
     setup_logging()
 
     start_time = time.perf_counter()
+    successful = False
 
     try:
         args = parse_args()
-        config = get_camera(args.camera)
+        camera_ids = resolve_camera_ids(args.camera)
+        camera_configs = {
+            camera_id: get_camera(camera_id)
+            for camera_id in camera_ids
+        }
 
-        pipeline(camera_config=config)
-
+        if len(camera_configs) == 1:
+            successful = pipeline(
+                camera_config=next(iter(camera_configs.values()))
+            )
+        else:
+            results = run_cameras(
+                camera_configs,
+                max_download_workers=args.download_workers,
+            )
+            successful = all_cameras_succeeded(results)
     finally:
         elapsed = time.perf_counter() - start_time
 
@@ -64,10 +123,15 @@ def main():
 
         logger.info("=" * 60)
         logger.info(
-            f"Pipeline finished in {minutes} min {seconds:.1f} sec "
-            f"({elapsed/60:.2f} min)"
+            "Pipeline finished in %d min %.1f sec (%.2f min)",
+            minutes,
+            seconds,
+            elapsed / 60,
         )
         logger.info("=" * 60)
+
+    if not successful:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

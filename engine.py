@@ -69,6 +69,7 @@ def process_video(
     expanded_roi,
     limit_roi=None,
     mode="simple",
+    model=None,
 ):
     """
     mode:
@@ -151,6 +152,7 @@ def process_video(
             seconds_before,
             seconds_after,
             cooldown_seconds,
+            model=model,
         )
 
         cap = ctx["cap"]

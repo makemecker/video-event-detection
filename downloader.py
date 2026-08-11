@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from requests.adapters import HTTPAdapter
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
 from urllib3.util.retry import Retry
 import requests
 import logging
@@ -55,7 +57,7 @@ def _download_stream_with_progress(
     downloaded = 0
 
     size_label = _format_bytes(total_size) if total_size else "unknown size"
-    logger.info("Download started: %s (%s)", filename, size_label)
+    logger.info("Download started [%s]: %s", filename, size_label)
 
     with open(filepath, "wb") as file:
         for chunk in response.iter_content(chunk_size=chunk_size):
@@ -81,7 +83,8 @@ def _download_stream_with_progress(
                     else 0
                 )
                 logger.info(
-                    "Download progress: %.1f%% (%s/%s), %s/s, ETA %s",
+                    "Download progress [%s]: %.1f%% (%s/%s), %s/s, ETA %s",
+                    filename,
                     percent,
                     _format_bytes(downloaded),
                     _format_bytes(total_size),
@@ -90,7 +93,8 @@ def _download_stream_with_progress(
                 )
             else:
                 logger.info(
-                    "Download progress: %s, %s/s, elapsed %s",
+                    "Download progress [%s]: %s, %s/s, elapsed %s",
+                    filename,
                     _format_bytes(downloaded),
                     _format_bytes(bytes_per_second),
                     _format_duration(elapsed),
@@ -100,7 +104,8 @@ def _download_stream_with_progress(
 
     elapsed = max(time.monotonic() - started_at, 0.001)
     logger.info(
-        "Download finished: %s in %s, average %s/s",
+        "Download finished [%s]: %s in %s, average %s/s",
+        filename,
         _format_bytes(downloaded),
         _format_duration(elapsed),
         _format_bytes(downloaded / elapsed),
@@ -270,7 +275,7 @@ def _get_webclient_base(
     return webclient_base.rstrip("/")
 
 
-def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=True):
+def get_yesterday_interval_utc(start_hour=7, start_minute=00, end_hour=7, end_minute=30, cross_day=False):
     now = datetime.now(timezone.utc)
 
     yesterday_date = (now - timedelta(days=1)).date()
@@ -313,6 +318,9 @@ def download_fragment(
         verify_ssl=False,
         download_progress_interval=5
 ):
+    if not verify_ssl:
+        disable_warnings(InsecureRequestWarning)
+
     email = EMAIL
     password = PASSWORD
     client_id = CLIENT_ID
@@ -329,7 +337,7 @@ def download_fragment(
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
-    logger.info("=== EXPORT STEP STARTED ===")
+    logger.info("[%s] === EXPORT STEP STARTED ===", camera_id)
 
     access_token = _authenticate(
         session,
@@ -369,7 +377,7 @@ def download_fragment(
     r = start_export(base)
     if r.status_code in (404, 502):
         r.close()
-        logger.warning("AxxonNet route changed; resolving it again")
+        logger.warning("[%s] AxxonNet route changed; resolving it again", camera_id)
         base = _get_webclient_base(
             session,
             base_api,
@@ -381,14 +389,14 @@ def download_fragment(
 
     if r.status_code != 202:
         logger.error(
-            f"Export failed {r.status_code}: {r.text}"
+            "[%s] Export failed %s: %s", camera_id, r.status_code, r.text
         )
         raise RuntimeError(f"Export start failed:\n{r.status_code}\n{r.text}")
 
     export_id = r.headers["location"].split("/")[-1]
-    logger.info(f"Export started id={export_id}")
+    logger.info("[%s] Export started id=%s", camera_id, export_id)
 
-    logger.info("Starting export job...")
+    logger.info("[%s] Starting export job...", camera_id)
 
     consecutive_route_failures = 0
     while True:
@@ -408,7 +416,7 @@ def download_fragment(
                 raise RuntimeError(
                     "AxxonNet route remains unavailable after 3 refreshes"
                 )
-            logger.warning("AxxonNet route changed; resolving it again")
+            logger.warning("[%s] AxxonNet route changed; resolving it again", camera_id)
             base = _get_webclient_base(
                 session,
                 base_api,
@@ -427,7 +435,10 @@ def download_fragment(
         progress = data.get("progress", 0)
 
         logger.info(
-            f"Export state={state} progress={progress * 100:.1f}%"
+            "[%s] Export state=%s progress=%.1f%%",
+            camera_id,
+            state,
+            progress * 100,
         )
 
         if state == 2:
@@ -462,7 +473,7 @@ def download_fragment(
 
     if dl.status_code in (404, 502):
         dl.close()
-        logger.warning("AxxonNet route changed; resolving it again")
+        logger.warning("[%s] AxxonNet route changed; resolving it again", camera_id)
         base = _get_webclient_base(
             session,
             base_api,
@@ -494,7 +505,7 @@ def download_fragment(
             progress_interval=download_progress_interval,
         )
 
-    logger.info(f"✓ downloaded:{filepath}")
+    logger.info("[%s] ✓ downloaded: %s", camera_id, filepath)
 
     if delete_after_download:
         _request(
@@ -505,6 +516,6 @@ def download_fragment(
             verify=verify_ssl,
             timeout=30
         )
-        logger.info("✓ export deleted")
+        logger.info("[%s] ✓ export deleted", camera_id)
 
     return filepath

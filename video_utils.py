@@ -26,6 +26,24 @@ DEFAULT_SETTINGS = {
     "cooldown_seconds": 1,
 }
 
+
+def load_yolo_model():
+    logger.info("Loading YOLO...")
+    from ultralytics import YOLO
+
+    model_path = Path(
+        os.getenv(
+            "YOLO_MODEL_PATH",
+            str(PROJECT_ROOT / "yolov8x.pt"),
+        )
+    )
+    if not model_path.is_file():
+        raise FileNotFoundError(f"YOLO model not found: {model_path}")
+
+    model = YOLO(str(model_path))
+    model.to("cuda")
+    return model
+
 MONTHS = {
     "янв": "01",
     "фев": "02",
@@ -68,7 +86,8 @@ def build_output_paths(cam_date_part, date_str):
     }
 
 def init_video_context(video_path, event_frames_dir,
-                       seconds_before, seconds_after, cooldown_seconds):
+                       seconds_before, seconds_after, cooldown_seconds,
+                       model=None):
 
     os.makedirs(event_frames_dir, exist_ok=True)
 
@@ -95,20 +114,10 @@ def init_video_context(video_path, event_frames_dir,
     logger.info(f"Frames: {total_frames}")
     logger.info(f"Resolution: {frame_w}x{frame_h}")
 
-    logger.info("Loading YOLO...")
-    from ultralytics import YOLO
-
-    model_path = Path(
-        os.getenv(
-            "YOLO_MODEL_PATH",
-            str(PROJECT_ROOT / "yolov8x.pt"),
-        )
-    )
-    if not model_path.is_file():
-        raise FileNotFoundError(f"YOLO model not found: {model_path}")
-
-    model = YOLO(str(model_path))
-    model.to("cuda")
+    if model is None:
+        model = load_yolo_model()
+    else:
+        logger.info("Using preloaded YOLO model")
 
     return {
         "cap": cap,

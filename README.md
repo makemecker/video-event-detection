@@ -30,7 +30,31 @@ Make sure you have Python 3.9+ installed
 
 Run any camera processor:
 
+```bash
 python main.py 2
+```
+
+Download all configured cameras in parallel and then process them on the GPU
+one by one:
+
+```bash
+python main.py all
+```
+
+The `all` group contains: `2`, `4`, `5_1`, `5_2`, `5_3`, `5_dv`, `5_k`, `7`,
+and `7_st`.
+
+You can also select several cameras explicitly or limit simultaneous
+downloads:
+
+```bash
+python main.py 2 4 7_st
+python main.py all --download-workers 4
+```
+
+After processing, the application prints a summary for every selected camera
+and exits with a non-zero status if at least one download or processing task
+failed.
 
 ---
 

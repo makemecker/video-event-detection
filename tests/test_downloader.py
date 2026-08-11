@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import requests
+from urllib3.exceptions import InsecureRequestWarning
 
 from downloader import (
     _authenticate,
@@ -13,6 +14,7 @@ from downloader import (
     _get_camera_domain_id,
     _get_webclient_base,
     _request,
+    download_fragment,
 )
 
 
@@ -74,6 +76,26 @@ class NetworkDiagnosticsTests(unittest.TestCase):
                 "https://cloud.example/api/v3/test"
             )
 
+    @patch("downloader.requests.Session")
+    @patch("downloader.disable_warnings")
+    def test_disables_insecure_request_warning_when_ssl_is_not_verified(
+            self,
+            disable_warnings_mock,
+            session_mock,
+    ):
+        session_mock.side_effect = RuntimeError("stop after warning setup")
+
+        with self.assertRaisesRegex(RuntimeError, "stop after warning setup"):
+            download_fragment(
+                camera_id="camera",
+                archive="archive",
+                start="start",
+                end="end",
+                verify_ssl=False,
+            )
+
+        disable_warnings_mock.assert_called_once_with(InsecureRequestWarning)
+
 
 class DownloadProgressTests(unittest.TestCase):
     def test_formats_sizes_and_durations(self):
@@ -120,6 +142,9 @@ class DownloadProgressTests(unittest.TestCase):
         )
         self.assertTrue(
             any("Download finished" in message for message in logs.output)
+        )
+        self.assertTrue(
+            all("[video.mkv]" in message for message in logs.output)
         )
 
 
