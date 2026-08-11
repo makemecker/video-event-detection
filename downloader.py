@@ -54,6 +54,68 @@ def _authenticate(session, base_api, email, password, client_id, verify_ssl):
     return access_token
 
 
+def _get_camera_domain_id(cameras, camera_id):
+    def normalise_access_point(value):
+        if not isinstance(value, str):
+            return None
+        return value.strip().strip("/").casefold()
+
+    target = normalise_access_point(camera_id)
+    camera_entries = [
+        item for item in cameras
+        if isinstance(item, dict)
+        and normalise_access_point(item.get("accessPoint"))
+    ]
+
+    exact_camera = next(
+        (
+            item for item in camera_entries
+            if normalise_access_point(item["accessPoint"]) == target
+        ),
+        None
+    )
+    if exact_camera is not None:
+        domain_id = exact_camera.get("domainId")
+        if domain_id is None:
+            raise RuntimeError(
+                f"Camera {camera_id!r} does not contain domainId"
+            )
+        return domain_id
+
+    def unique_domain_id(predicate):
+        domain_ids = {
+            item.get("domainId") for item in camera_entries
+            if predicate(normalise_access_point(item["accessPoint"]))
+            and item.get("domainId") is not None
+        }
+        return next(iter(domain_ids)) if len(domain_ids) == 1 else None
+
+    target_device = target.rsplit("/", 1)[0] if "/" in target else target
+    domain_id = unique_domain_id(
+        lambda access_point: access_point.rsplit("/", 1)[0] == target_device
+    )
+    if domain_id is not None:
+        logger.warning(
+            "Exact camera is absent in configsync; domain resolved by device"
+        )
+        return domain_id
+
+    target_server = target.split("/", 1)[0]
+    domain_id = unique_domain_id(
+        lambda access_point: access_point.split("/", 1)[0] == target_server
+    )
+    if domain_id is not None:
+        logger.warning(
+            "Exact camera is absent in configsync; domain resolved by server"
+        )
+        return domain_id
+
+    raise RuntimeError(
+        f"Camera {camera_id!r} was not found and its domain could not be "
+        f"determined from {len(camera_entries)} configsync cameras"
+    )
+
+
 def _get_webclient_base(
         session,
         base_api,
@@ -67,7 +129,6 @@ def _get_webclient_base(
         session,
         "get",
         f"{base_api}/api/v1/configsync/cameras",
-        params={"enabledOnly": "true"},
         headers=headers,
         verify=verify_ssl,
         timeout=30
@@ -78,23 +139,7 @@ def _get_webclient_base(
     if not isinstance(cameras, list):
         raise RuntimeError("Unexpected response from configsync/cameras")
 
-    camera = next(
-        (
-            item for item in cameras
-            if isinstance(item, dict) and item.get("accessPoint") == camera_id
-        ),
-        None
-    )
-    if camera is None:
-        raise RuntimeError(
-            f"Camera {camera_id!r} was not found in configsync/cameras"
-        )
-
-    domain_id = camera.get("domainId")
-    if domain_id is None:
-        raise RuntimeError(
-            f"Camera {camera_id!r} does not contain domainId"
-        )
+    domain_id = _get_camera_domain_id(cameras, camera_id)
 
     webclient_response = _request(
         session,

@@ -2,7 +2,12 @@ import unittest
 
 import requests
 
-from downloader import _authenticate, _get_webclient_base, _request
+from downloader import (
+    _authenticate,
+    _get_camera_domain_id,
+    _get_webclient_base,
+    _request,
+)
 
 
 class FakeResponse:
@@ -97,11 +102,12 @@ class WebclientRouteTests(unittest.TestCase):
             session.get_calls[0][1]["headers"],
             {"Authorization": "Bearer test-token"}
         )
+        self.assertNotIn("params", session.get_calls[0][1])
 
     def test_rejects_unknown_camera(self):
         session = FakeSession(get_responses=[FakeResponse([])])
 
-        with self.assertRaisesRegex(RuntimeError, "was not found"):
+        with self.assertRaisesRegex(RuntimeError, "could not be determined"):
             _get_webclient_base(
                 session,
                 "https://cloud.example",
@@ -109,6 +115,59 @@ class WebclientRouteTests(unittest.TestCase):
                 self.camera_id,
                 False
             )
+
+    def test_resolves_domain_from_same_device(self):
+        cameras = [{
+            "accessPoint": (
+                "server/DeviceIpint.1/SourceEndpoint.video:0:1"
+            ),
+            "domainId": 42,
+        }]
+
+        self.assertEqual(
+            _get_camera_domain_id(cameras, self.camera_id),
+            42
+        )
+
+    def test_resolves_domain_from_same_server_when_unique(self):
+        cameras = [
+            {
+                "accessPoint": (
+                    "server/DeviceIpint.2/SourceEndpoint.video:0:0"
+                ),
+                "domainId": 42,
+            },
+            {
+                "accessPoint": (
+                    "server/DeviceIpint.3/SourceEndpoint.video:0:0"
+                ),
+                "domainId": 42,
+            },
+        ]
+
+        self.assertEqual(
+            _get_camera_domain_id(cameras, self.camera_id),
+            42
+        )
+
+    def test_rejects_ambiguous_server_domains(self):
+        cameras = [
+            {
+                "accessPoint": (
+                    "server/DeviceIpint.2/SourceEndpoint.video:0:0"
+                ),
+                "domainId": 42,
+            },
+            {
+                "accessPoint": (
+                    "server/DeviceIpint.3/SourceEndpoint.video:0:0"
+                ),
+                "domainId": 99,
+            },
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "could not be determined"):
+            _get_camera_domain_id(cameras, self.camera_id)
 
     def test_rejects_unexpected_public_url(self):
         session = FakeSession(get_responses=[
