@@ -1,9 +1,15 @@
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import requests
 
 from downloader import (
     _authenticate,
+    _download_stream_with_progress,
+    _format_bytes,
+    _format_duration,
     _get_camera_domain_id,
     _get_webclient_base,
     _request,
@@ -67,6 +73,54 @@ class NetworkDiagnosticsTests(unittest.TestCase):
                 "get",
                 "https://cloud.example/api/v3/test"
             )
+
+
+class DownloadProgressTests(unittest.TestCase):
+    def test_formats_sizes_and_durations(self):
+        self.assertEqual(_format_bytes(1536), "1.50 KiB")
+        self.assertEqual(_format_bytes(2 * 1024 ** 3), "2.00 GiB")
+        self.assertEqual(_format_duration(3661), "01:01:01")
+
+    def test_logs_progress_and_writes_the_stream(self):
+        class DownloadResponse:
+            headers = {"Content-Length": "4"}
+
+            def iter_content(self, chunk_size):
+                self.chunk_size = chunk_size
+                return iter((b"ab", b"cd"))
+
+        response = DownloadResponse()
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "video.mkv")
+
+            with patch(
+                    "downloader.time.monotonic",
+                    side_effect=(0.0, 5.0, 10.0, 10.0)
+            ):
+                with self.assertLogs("downloader", level="INFO") as logs:
+                    downloaded = _download_stream_with_progress(
+                        response=response,
+                        filepath=filepath,
+                        filename="video.mkv",
+                        progress_interval=5,
+                        chunk_size=2,
+                    )
+
+            with open(filepath, "rb") as file:
+                self.assertEqual(file.read(), b"abcd")
+
+        self.assertEqual(downloaded, 4)
+        self.assertEqual(response.chunk_size, 2)
+        self.assertTrue(
+            any("50.0%" in message for message in logs.output)
+        )
+        self.assertTrue(
+            any("ETA 00:00:05" in message for message in logs.output)
+        )
+        self.assertTrue(
+            any("Download finished" in message for message in logs.output)
+        )
 
 
 class WebclientRouteTests(unittest.TestCase):

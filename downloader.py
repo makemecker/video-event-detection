@@ -17,6 +17,98 @@ from credentials import (
 logger = logging.getLogger(__name__)
 
 
+def _format_bytes(byte_count):
+    value = float(byte_count)
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+
+    for unit in units:
+        if abs(value) < 1024 or unit == units[-1]:
+            return f"{value:.2f} {unit}"
+        value /= 1024
+
+
+def _format_duration(seconds):
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _download_stream_with_progress(
+        response,
+        filepath,
+        filename,
+        progress_interval=5,
+        chunk_size=1024 * 1024
+):
+    content_length = response.headers.get("Content-Length")
+    try:
+        total_size = int(content_length) if content_length else None
+    except (TypeError, ValueError):
+        total_size = None
+
+    if total_size is not None and total_size <= 0:
+        total_size = None
+
+    started_at = time.monotonic()
+    last_report_at = started_at
+    downloaded = 0
+
+    size_label = _format_bytes(total_size) if total_size else "unknown size"
+    logger.info("Download started: %s (%s)", filename, size_label)
+
+    with open(filepath, "wb") as file:
+        for chunk in response.iter_content(chunk_size=chunk_size):
+            if not chunk:
+                continue
+
+            file.write(chunk)
+            downloaded += len(chunk)
+
+            now = time.monotonic()
+            if now - last_report_at < progress_interval:
+                continue
+
+            elapsed = max(now - started_at, 0.001)
+            bytes_per_second = downloaded / elapsed
+
+            if total_size:
+                percent = min(downloaded / total_size * 100, 100)
+                remaining = max(total_size - downloaded, 0)
+                eta = (
+                    remaining / bytes_per_second
+                    if bytes_per_second > 0
+                    else 0
+                )
+                logger.info(
+                    "Download progress: %.1f%% (%s/%s), %s/s, ETA %s",
+                    percent,
+                    _format_bytes(downloaded),
+                    _format_bytes(total_size),
+                    _format_bytes(bytes_per_second),
+                    _format_duration(eta),
+                )
+            else:
+                logger.info(
+                    "Download progress: %s, %s/s, elapsed %s",
+                    _format_bytes(downloaded),
+                    _format_bytes(bytes_per_second),
+                    _format_duration(elapsed),
+                )
+
+            last_report_at = now
+
+    elapsed = max(time.monotonic() - started_at, 0.001)
+    logger.info(
+        "Download finished: %s in %s, average %s/s",
+        _format_bytes(downloaded),
+        _format_duration(elapsed),
+        _format_bytes(downloaded / elapsed),
+    )
+
+    return downloaded
+
+
 def _request(session, method, url, **kwargs):
     try:
         return getattr(session, method)(url, **kwargs)
@@ -178,7 +270,7 @@ def _get_webclient_base(
     return webclient_base.rstrip("/")
 
 
-def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=False):
+def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=True):
     now = datetime.now(timezone.utc)
 
     yesterday_date = (now - timedelta(days=1)).date()
@@ -218,7 +310,8 @@ def download_fragment(
         waittimeout=30000,
         poll_interval=2,
         delete_after_download=True,
-        verify_ssl=False
+        verify_ssl=False,
+        download_progress_interval=5
 ):
     email = EMAIL
     password = PASSWORD
@@ -394,10 +487,12 @@ def download_fragment(
 
         dl.raise_for_status()
 
-        with open(filepath, "wb") as f:
-            for chunk in dl.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+        _download_stream_with_progress(
+            response=dl,
+            filepath=filepath,
+            filename=filename,
+            progress_interval=download_progress_interval,
+        )
 
     logger.info(f"✓ downloaded:{filepath}")
 

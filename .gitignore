@@ -26,8 +26,9 @@ Thumbs.db
 *.mp4
 *.zip
 *_frames/
+*.mkv
 
 # Models (если скачиваются локально)
 *.pt
-
+*.part
 test-video
