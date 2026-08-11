@@ -76,7 +76,7 @@ class WebclientRouteTests(unittest.TestCase):
         session = FakeSession(get_responses=[
             FakeResponse([
                 {"accessPoint": "another-camera", "domainId": 10},
-                {"accessPoint": self.camera_id, "domainId": 42},
+                {"accessPoint": f"hosts/{self.camera_id}", "domainId": 42},
             ]),
             FakeResponse({"publicURL": "/arpserver/987_0/webclient"}),
         ])

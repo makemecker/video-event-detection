@@ -58,7 +58,10 @@ def _get_camera_domain_id(cameras, camera_id):
     def normalise_access_point(value):
         if not isinstance(value, str):
             return None
-        return value.strip().strip("/").casefold()
+        access_point = value.strip().strip("/").casefold()
+        if access_point.startswith("hosts/"):
+            access_point = access_point[len("hosts/"):]
+        return access_point
 
     target = normalise_access_point(camera_id)
     camera_entries = [
