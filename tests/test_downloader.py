@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,9 @@ from downloader import (
     _get_webclient_base,
     _request,
     download_fragment,
+    download_fragmented_video,
+    merge_video_fragments,
+    split_export_interval,
 )
 
 
@@ -146,6 +150,113 @@ class DownloadProgressTests(unittest.TestCase):
         self.assertTrue(
             all("[video.mkv]" in message for message in logs.output)
         )
+
+
+class FragmentedDownloadTests(unittest.TestCase):
+    def test_splits_day_into_hourly_intervals(self):
+        intervals = split_export_interval(
+            "20260811T053000.000",
+            "20260812T053000.000",
+        )
+
+        self.assertEqual(len(intervals), 24)
+        self.assertEqual(
+            intervals[0],
+            ("20260811T053000.000", "20260811T063000.000"),
+        )
+        self.assertEqual(
+            intervals[-1],
+            ("20260812T043000.000", "20260812T053000.000"),
+        )
+
+    def test_merge_uses_ffmpeg_concat_and_all_streams(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parts_dir = Path(directory) / "parts"
+            parts_dir.mkdir()
+            fragments = [
+                parts_dir / "part-1.mkv",
+                parts_dir / "part-2.mkv",
+            ]
+            for fragment in fragments:
+                fragment.write_bytes(b"part")
+
+            output = Path(directory) / "merged.mkv"
+
+            def fake_run(command, **kwargs):
+                del kwargs
+                Path(command[-1]).write_bytes(b"merged")
+                return type("Result", (), {"returncode": 0, "stderr": ""})()
+
+            with patch("downloader.subprocess.run", side_effect=fake_run) as run:
+                result = merge_video_fragments(
+                    fragments,
+                    output,
+                    ffmpeg_path="ffmpeg-test",
+                )
+
+            command = run.call_args.args[0]
+            self.assertEqual(command[0], "ffmpeg-test")
+            self.assertIn("concat", command)
+            self.assertEqual(command[command.index("-map") + 1], "0")
+            self.assertEqual(command[command.index("-c") + 1], "copy")
+            self.assertEqual(result, str(output))
+            self.assertEqual(output.read_bytes(), b"merged")
+
+    def test_downloads_hourly_parts_then_merges_and_removes_parts(self):
+        downloaded_intervals = []
+
+        def fake_download(**kwargs):
+            downloaded_intervals.append((kwargs["start"], kwargs["end"]))
+            filepath = Path(kwargs["out_dir"]) / (
+                "camera["
+                f"{kwargs['start'].split('.')[0]}-{kwargs['end'].split('.')[0]}"
+                "].mkv"
+            )
+            filepath.write_bytes(b"part")
+            return str(filepath)
+
+        def fake_merge(fragment_paths, output_path, ffmpeg_path=None):
+            self.assertEqual(ffmpeg_path, "ffmpeg-test")
+            self.assertEqual(len(fragment_paths), 2)
+            Path(output_path).write_bytes(b"merged")
+            return str(output_path)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch(
+                    "downloader._resolve_ffmpeg_executable",
+                    return_value="ffmpeg-test",
+                ),
+                patch("downloader.download_fragment", side_effect=fake_download),
+                patch(
+                    "downloader.merge_video_fragments",
+                    side_effect=fake_merge,
+                ),
+            ):
+                result = download_fragmented_video(
+                    camera_id="camera-id",
+                    archive="archive",
+                    start="20260811T053000.000",
+                    end="20260811T073000.000",
+                    out_dir=directory,
+                )
+
+            self.assertEqual(
+                downloaded_intervals,
+                [
+                    ("20260811T053000.000", "20260811T063000.000"),
+                    ("20260811T063000.000", "20260811T073000.000"),
+                ],
+            )
+            self.assertEqual(
+                Path(result).name,
+                "camera[20260811T053000-20260811T073000].mkv",
+            )
+            self.assertEqual(Path(result).read_bytes(), b"merged")
+            self.assertFalse(any(
+                path.name.startswith(".video-parts-")
+                for path in Path(directory).iterdir()
+            ))
 
 
 class WebclientRouteTests(unittest.TestCase):

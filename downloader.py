@@ -6,6 +6,11 @@ from urllib3.util.retry import Retry
 import requests
 import logging
 import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import time
 from urllib.parse import urljoin, urlsplit
 from credentials import (
@@ -275,10 +280,10 @@ def _get_webclient_base(
     return webclient_base.rstrip("/")
 
 
-def get_yesterday_interval_utc(start_hour=7, start_minute=00, end_hour=7, end_minute=30, cross_day=False):
+def get_yesterday_interval_utc(start_hour=5, start_minute=30, end_hour=19, end_minute=30, cross_day=True):
     now = datetime.now(timezone.utc)
 
-    yesterday_date = (now - timedelta(days=1)).date()
+    yesterday_date = (now - timedelta(days=0)).date()
 
     start_dt = datetime(
         yesterday_date.year,
@@ -519,3 +524,226 @@ def download_fragment(
         logger.info("[%s] ✓ export deleted", camera_id)
 
     return filepath
+
+
+def _parse_export_timestamp(value):
+    for fmt in ("%Y%m%dT%H%M%S.%f", "%Y%m%dT%H%M%S"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"Invalid export timestamp: {value}")
+
+
+def _format_export_timestamp(value):
+    return value.strftime("%Y%m%dT%H%M%S.%f")[:-3]
+
+
+def split_export_interval(start, end, fragment_hours=1):
+    if fragment_hours <= 0:
+        raise ValueError("fragment_hours must be greater than zero")
+
+    start_dt = _parse_export_timestamp(start)
+    end_dt = _parse_export_timestamp(end)
+    if end_dt <= start_dt:
+        raise ValueError("Export end must be later than export start")
+
+    intervals = []
+    cursor = start_dt
+    step = timedelta(hours=fragment_hours)
+    while cursor < end_dt:
+        fragment_end = min(cursor + step, end_dt)
+        intervals.append((
+            _format_export_timestamp(cursor),
+            _format_export_timestamp(fragment_end),
+        ))
+        cursor = fragment_end
+
+    return intervals
+
+
+def _resolve_ffmpeg_executable():
+    configured_path = os.getenv("FFMPEG_PATH")
+    if configured_path:
+        configured = Path(configured_path)
+        if configured.is_file():
+            return str(configured)
+
+        resolved = shutil.which(configured_path)
+        if resolved:
+            return resolved
+
+        raise FileNotFoundError(
+            f"FFmpeg from FFMPEG_PATH was not found: {configured_path}"
+        )
+
+    resolved = shutil.which("ffmpeg")
+    if resolved:
+        return resolved
+
+    executable_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    beside_python = Path(sys.executable).with_name(executable_name)
+    if beside_python.is_file():
+        return str(beside_python)
+
+    raise FileNotFoundError(
+        "FFmpeg was not found. Add it to PATH or set FFMPEG_PATH."
+    )
+
+
+def _escape_concat_path(path):
+    return str(Path(path).resolve()).replace("\\", "/").replace(
+        "'", r"'\''"
+    )
+
+
+def merge_video_fragments(fragment_paths, output_path, ffmpeg_path=None):
+    if not fragment_paths:
+        raise ValueError("No video fragments to merge")
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output_path.with_name(
+        f"{output_path.stem}.merging{output_path.suffix}"
+    )
+    concat_path = Path(fragment_paths[0]).parent / "concat.txt"
+
+    with concat_path.open("w", encoding="utf-8") as concat_file:
+        for fragment_path in fragment_paths:
+            concat_file.write(
+                f"file '{_escape_concat_path(fragment_path)}'\n"
+            )
+
+    command = [
+        ffmpeg_path or _resolve_ffmpeg_executable(),
+        "-y",
+        "-hide_banner",
+        "-v", "error",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(concat_path),
+        "-map", "0",
+        "-c", "copy",
+        str(temporary_output),
+    ]
+
+    logger.info(
+        "Merging %d hourly fragments into %s",
+        len(fragment_paths),
+        output_path,
+    )
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "FFmpeg could not merge video fragments:\n"
+                + result.stderr.strip()
+            )
+
+        if not temporary_output.is_file() or temporary_output.stat().st_size == 0:
+            raise RuntimeError(
+                f"FFmpeg did not create the merged video: {temporary_output}"
+            )
+
+        os.replace(temporary_output, output_path)
+    except Exception:
+        temporary_output.unlink(missing_ok=True)
+        raise
+
+    logger.info("Hourly fragments merged: %s", output_path)
+    return str(output_path)
+
+
+def download_fragmented_video(
+        camera_id,
+        archive,
+        start,
+        end,
+        out_dir=".",
+        fragment_hours=1,
+        export_format="mkv",
+):
+    ffmpeg_path = _resolve_ffmpeg_executable()
+    intervals = split_export_interval(start, end, fragment_hours)
+    output_dir = Path(out_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    parts_dir = Path(tempfile.mkdtemp(
+        prefix=".video-parts-",
+        dir=output_dir,
+    ))
+    fragment_paths = []
+
+    logger.info(
+        "[%s] Split download enabled: %d fragments of up to %s hour(s)",
+        camera_id,
+        len(intervals),
+        fragment_hours,
+    )
+
+    try:
+        for position, (fragment_start, fragment_end) in enumerate(
+                intervals,
+                start=1,
+        ):
+            logger.info(
+                "[%s] Downloading fragment %d/%d: %s - %s",
+                camera_id,
+                position,
+                len(intervals),
+                fragment_start,
+                fragment_end,
+            )
+            fragment_paths.append(download_fragment(
+                camera_id=camera_id,
+                archive=archive,
+                start=fragment_start,
+                end=fragment_end,
+                out_dir=str(parts_dir),
+                export_format=export_format,
+            ))
+
+        first_name = Path(fragment_paths[0]).name
+        filename_prefix = first_name.split("[", 1)[0]
+        extension = Path(first_name).suffix or f".{export_format}"
+        filename_start = _parse_export_timestamp(start).strftime(
+            "%Y%m%dT%H%M%S"
+        )
+        filename_end = _parse_export_timestamp(end).strftime(
+            "%Y%m%dT%H%M%S"
+        )
+        output_path = output_dir / (
+            f"{filename_prefix}[{filename_start}-{filename_end}]{extension}"
+        )
+
+        merged_path = merge_video_fragments(
+            fragment_paths,
+            output_path,
+            ffmpeg_path=ffmpeg_path,
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Split download failed; downloaded parts remain in %s",
+            camera_id,
+            parts_dir,
+        )
+        raise
+
+    try:
+        shutil.rmtree(parts_dir)
+    except OSError as error:
+        logger.warning(
+            "[%s] Merged video is ready, but temporary fragments could not "
+            "be deleted from %s: %s",
+            camera_id,
+            parts_dir,
+            error,
+        )
+    else:
+        logger.info("[%s] Temporary hourly fragments deleted", camera_id)
+    return merged_path

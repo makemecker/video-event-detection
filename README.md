@@ -52,6 +52,18 @@ python main.py 2 4 7_st
 python main.py all --download-workers 4
 ```
 
+On a computer where the VPN interrupts large downloads, enable one-hour
+downloads. The fragments are merged by FFmpeg without re-encoding before
+YOLO processing:
+
+```bash
+python main.py 4 --split-download
+python main.py all --split-download
+```
+
+Do not pass `--split-download` on a server that can download the complete
+export in one connection; the original single-file mode remains the default.
+
 After processing, the application prints a summary for every selected camera
 and exits with a non-zero status if at least one download or processing task
 failed.

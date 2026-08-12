@@ -3,6 +3,7 @@ import unittest
 from main import (
     DEFAULT_CAMERA_IDS,
     all_cameras_succeeded,
+    parse_args,
     resolve_camera_ids,
 )
 
@@ -34,6 +35,10 @@ class MainCameraSelectionTests(unittest.TestCase):
             "2": {"status": "success"},
             "4": {"status": "download_failed"},
         }))
+
+    def test_split_download_flag_is_opt_in(self):
+        self.assertFalse(parse_args(["4"]).split_download)
+        self.assertTrue(parse_args(["4", "--split-download"]).split_download)
 
 
 if __name__ == "__main__":

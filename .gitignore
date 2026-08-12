@@ -31,4 +31,5 @@ Thumbs.db
 # Models (если скачиваются локально)
 *.pt
 *.part
+.video-parts-*/
 test-video

@@ -57,7 +57,7 @@ def positive_integer(value):
     return number
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Vision Event Detector")
 
     parser.add_argument(
@@ -71,8 +71,16 @@ def parse_args():
         default=None,
         help="Maximum parallel downloads (default: all selected cameras)",
     )
+    parser.add_argument(
+        "--split-download",
+        action="store_true",
+        help=(
+            "Download each camera in one-hour fragments and merge them "
+            "before processing"
+        ),
+    )
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def resolve_camera_ids(values):
@@ -107,12 +115,14 @@ def main():
 
         if len(camera_configs) == 1:
             successful = pipeline(
-                camera_config=next(iter(camera_configs.values()))
+                camera_config=next(iter(camera_configs.values())),
+                split_download=args.split_download,
             )
         else:
             results = run_cameras(
                 camera_configs,
                 max_download_workers=args.download_workers,
+                split_download=args.split_download,
             )
             successful = all_cameras_succeeded(results)
     finally:

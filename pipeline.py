@@ -4,6 +4,7 @@ import logging
 from downloader import (
     get_yesterday_interval_utc,
     download_fragment,
+    download_fragmented_video,
 )
 from engine import process_video
 from video_utils import load_yolo_model
@@ -12,8 +13,18 @@ from video_utils import load_yolo_model
 logger = logging.getLogger(__name__)
 
 
-def download_camera_video(camera_config, start, end):
-    return download_fragment(
+def download_camera_video(
+        camera_config,
+        start,
+        end,
+        split_download=False,
+):
+    download = (
+        download_fragmented_video
+        if split_download
+        else download_fragment
+    )
+    return download(
         camera_id=camera_config["camera_id"],
         archive=camera_config["archive"],
         start=start,
@@ -32,12 +43,17 @@ def process_camera_video(camera_config, video_path, model=None):
     )
 
 
-def pipeline(camera_config):
+def pipeline(camera_config, split_download=False):
     logger.info("Running pipeline for camera: %s", camera_config["camera_id"])
 
     try:
         start, end = get_yesterday_interval_utc()
-        video_path = download_camera_video(camera_config, start, end)
+        video_path = download_camera_video(
+            camera_config,
+            start,
+            end,
+            split_download=split_download,
+        )
         process_camera_video(camera_config, video_path)
         return True
     except Exception:
@@ -77,7 +93,11 @@ def _log_camera_summary(results):
     logger.info("=" * 60)
 
 
-def run_cameras(camera_configs, max_download_workers=None):
+def run_cameras(
+        camera_configs,
+        max_download_workers=None,
+        split_download=False,
+):
     """Download cameras concurrently, then process them on one GPU in order."""
     if not camera_configs:
         return {}
@@ -115,6 +135,7 @@ def run_cameras(camera_configs, max_download_workers=None):
                 camera_config,
                 start,
                 end,
+                split_download,
             ): camera_id
             for camera_id, camera_config in camera_configs.items()
         }
